@@ -18,7 +18,37 @@ class TrainingController extends Controller
             $query->whereHas('roles', fn ($q) => $q->where('roles.id', $role->id));
         }
 
-        return response()->json($query->get());
+        $courses = $query->get();
+        $progress = UserCourseProgress::query()
+            ->where('user_id', $request->user()->id)
+            ->get()
+            ->keyBy('course_level_id');
+
+        return response()->json($courses->map(function (Course $course) use ($progress) {
+            return [
+                'id' => $course->id,
+                'title' => $course->title,
+                'description' => $course->description,
+                'is_required_for_promotion' => $course->is_required_for_promotion,
+                'roles' => $course->roles->map(fn ($r) => ['id' => $r->id, 'name' => $r->name, 'slug' => $r->slug]),
+                'levels' => $course->levels->map(function ($level) use ($progress) {
+                    $row = $progress->get($level->id);
+
+                    return [
+                        'id' => $level->id,
+                        'title' => $level->title,
+                        'sort_order' => $level->sort_order,
+                        'passing_score' => $level->passing_score,
+                        'progress' => $row ? [
+                            'status' => $row->status,
+                            'score' => $row->score,
+                            'progress_percent' => $row->progress_percent,
+                            'completed_at' => $row->completed_at,
+                        ] : null,
+                    ];
+                }),
+            ];
+        }));
     }
 
     public function progress(Request $request)

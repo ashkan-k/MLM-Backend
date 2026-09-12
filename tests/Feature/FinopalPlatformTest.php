@@ -270,4 +270,136 @@ class FinopalPlatformTest extends TestCase
 
         $this->withToken($rep->json('token'))->getJson('/api/superuser/stats')->assertForbidden();
     }
+
+    public function test_superuser_can_grant_and_revoke_role_permission(): void
+    {
+        $token = $this->postJson('/api/auth/login', [
+            'mobile' => '09120000000',
+            'password' => 'Password123!',
+            'role_slug' => 'superuser',
+        ])->json('token');
+
+        $role = Role::query()->where('slug', 'senior_manager')->firstOrFail();
+        $permission = $role->permissions()->where('slug', 'senior_manager.withdrawal.approve')->firstOrFail();
+
+        $this->withToken($token)->postJson('/api/superuser/permissions/assign', [
+            'role_id' => $role->id,
+            'permission_id' => $permission->id,
+            'allowed' => false,
+        ])->assertOk()->assertJsonPath('allowed', false);
+
+        $this->assertFalse($role->fresh()->permissions()->where('permissions.id', $permission->id)->exists());
+
+        $this->withToken($token)->postJson('/api/superuser/permissions/assign', [
+            'role_id' => $role->id,
+            'permission_id' => $permission->id,
+            'allowed' => true,
+        ])->assertOk();
+
+        $this->assertTrue($role->fresh()->permissions()->where('permissions.id', $permission->id)->wherePivot('allowed', true)->exists());
+    }
+
+    public function test_superuser_can_update_user_and_soft_delete_financial_account(): void
+    {
+        $token = $this->postJson('/api/auth/login', [
+            'mobile' => '09120000000',
+            'password' => 'Password123!',
+            'role_slug' => 'superuser',
+        ])->json('token');
+
+        $user = User::query()->where('mobile', '09125555555')->firstOrFail();
+
+        $this->withToken($token)->putJson('/api/superuser/users/'.$user->id, [
+            'name' => 'نماینده ویرایش‌شده',
+            'mobile' => $user->mobile,
+            'email' => $user->email,
+            'is_active' => true,
+            'role_slugs' => ['representative'],
+        ])->assertOk()->assertJsonPath('name', 'نماینده ویرایش‌شده');
+
+        $this->withToken($token)->deleteJson('/api/superuser/users/'.$user->id)
+            ->assertOk()
+            ->assertJsonPath('soft_deleted', true);
+
+        $this->assertFalse((bool) $user->fresh()->is_active);
+    }
+
+    public function test_superuser_reports_course_crud_and_one_decimal_rules(): void
+    {
+        $token = $this->postJson('/api/auth/login', [
+            'mobile' => '09120000000',
+            'password' => 'Password123!',
+            'role_slug' => 'superuser',
+        ])->json('token');
+
+        $this->withToken($token)->getJson('/api/superuser/reports')
+            ->assertOk()
+            ->assertJsonStructure(['summary', 'operations', 'sales_over_time', 'organization', 'commissions_by_role']);
+
+        $this->withToken($token)->getJson('/api/superuser/settings')
+            ->assertOk()
+            ->assertJsonStructure(['items', 'schema']);
+
+        $roleId = Role::query()->where('slug', 'representative')->value('id');
+        $course = $this->withToken($token)->postJson('/api/superuser/courses', [
+            'title' => 'دوره تست واحد',
+            'is_required_for_promotion' => true,
+            'role_ids' => [$roleId],
+            'levels' => [['title' => 'سطح ۱', 'sort_order' => 1, 'passing_score' => 70]],
+        ])->assertCreated()->json();
+
+        $this->withToken($token)->putJson('/api/superuser/courses/'.$course['id'], [
+            'title' => 'دوره ویرایش‌شده',
+            'is_required_for_promotion' => true,
+            'role_ids' => [$roleId],
+            'levels' => [[
+                'id' => $course['levels'][0]['id'],
+                'title' => 'سطح یک',
+                'sort_order' => 1,
+                'passing_score' => 80,
+            ]],
+        ])->assertOk()->assertJsonPath('title', 'دوره ویرایش‌شده');
+
+        $this->withToken($token)->deleteJson('/api/superuser/courses/'.$course['id'])->assertOk();
+
+        $rule = \App\Models\CommissionRule::query()->firstOrFail();
+        $this->withToken($token)->postJson('/api/superuser/commission-rules/'.$rule->id, [
+            'percent' => 20.55,
+            'qualified_percent' => 12.34,
+        ])->assertOk();
+
+        $version = $rule->fresh('versions')->versions->last();
+        $this->assertSame('20.6', number_format((float) $version->percent, 1, '.', ''));
+        $this->assertSame('12.3', number_format((float) $version->qualified_percent, 1, '.', ''));
+    }
+
+    public function test_superuser_can_open_and_export_audit_logs(): void
+    {
+        $token = $this->postJson('/api/auth/login', [
+            'mobile' => '09120000000',
+            'password' => 'Password123!',
+            'role_slug' => 'superuser',
+        ])->json('token');
+
+        $this->withToken($token)->postJson('/api/superuser/settings', [
+            'key' => 'qualification_thresholds',
+            'value' => [
+                'representative_points' => 1000,
+                'sales_manager_gateways' => 50,
+                'development_manager_gateways' => 200,
+            ],
+        ])->assertOk();
+
+        $list = $this->withToken($token)->getJson('/api/superuser/audits')->assertOk();
+        $id = $list->json('data.0.id');
+        $this->assertNotEmpty($id);
+
+        $this->withToken($token)->getJson('/api/superuser/audits/'.$id)
+            ->assertOk()
+            ->assertJsonStructure(['id', 'action', 'action_label', 'entity_label', 'history', 'related']);
+
+        $this->withToken($token)->getJson('/api/superuser/audits/export')
+            ->assertOk()
+            ->assertJsonStructure(['data', 'count']);
+    }
 }

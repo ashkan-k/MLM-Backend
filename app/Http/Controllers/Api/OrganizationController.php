@@ -28,7 +28,7 @@ class OrganizationController extends Controller
                 'id' => $u->id,
                 'name' => $u->name,
                 'mobile' => $u->mobile,
-                'roles' => $u->roles()->pluck('slug'),
+                'roles' => $u->roles()->pluck('name'),
             ])
         );
     }
@@ -43,6 +43,32 @@ class OrganizationController extends Controller
                 ->whereHas('roles', fn ($q) => $q->where('slug', 'representative'))
                 ->with('roles')
                 ->get()
+                ->map(fn (User $u) => [
+                    'id' => $u->id,
+                    'name' => $u->name,
+                    'mobile' => $u->mobile,
+                    'roles' => $u->roles->map(fn ($r) => ['id' => $r->id, 'name' => $r->name, 'slug' => $r->slug]),
+                ])
+        );
+    }
+
+    public function directory(Request $request, OrganizationTreeService $tree)
+    {
+        $user = $request->user();
+        $query = User::query()->where('is_active', true)->with('roles');
+
+        if (! $user->isSuperuser() && ! $user->hasRole('senior_manager')) {
+            $ids = $tree->descendants($user)->pluck('id')->push($user->id);
+            $query->whereIn('id', $ids);
+        }
+
+        return response()->json(
+            $query->orderBy('name')->get()->map(fn (User $u) => [
+                'id' => $u->id,
+                'name' => $u->name,
+                'mobile' => $u->mobile,
+                'roles' => $u->roles->map(fn ($r) => ['id' => $r->id, 'name' => $r->name, 'slug' => $r->slug]),
+            ])
         );
     }
 }

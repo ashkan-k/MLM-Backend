@@ -29,6 +29,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/organization/tree', [OrganizationController::class, 'tree']);
         Route::get('/organization/team', [OrganizationController::class, 'team']);
         Route::get('/representatives', [OrganizationController::class, 'representatives']);
+        Route::get('/users/directory', [OrganizationController::class, 'directory']);
 
         Route::get('/wallets', [WalletController::class, 'show']);
         Route::get('/wallets/aggregate', [WalletController::class, 'aggregate']);
@@ -78,8 +79,12 @@ Route::middleware(['auth.api'])->group(function () {
 
     Route::middleware(['superuser'])->prefix('superuser')->group(function () {
         Route::get('/stats', [SuperuserController::class, 'stats']);
+        Route::get('/reports', [SuperuserController::class, 'reports']);
+        Route::get('/reports/export', [SuperuserController::class, 'exportReports']);
         Route::get('/users', [SuperuserController::class, 'users']);
         Route::post('/users', [SuperuserController::class, 'storeUser']);
+        Route::put('/users/{user}', [SuperuserController::class, 'updateUser']);
+        Route::delete('/users/{user}', [SuperuserController::class, 'destroyUser']);
         Route::post('/users/{user}/roles', [SuperuserController::class, 'assignRole']);
         Route::get('/roles', [SuperuserController::class, 'roles']);
         Route::get('/permissions', [SuperuserController::class, 'permissions']);
@@ -89,7 +94,11 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/commission-rules', [SuperuserController::class, 'commissionRules']);
         Route::post('/commission-rules/{rule}', [SuperuserController::class, 'updateRule']);
         Route::match(['get', 'post'], '/courses', [SuperuserController::class, 'courses']);
+        Route::put('/courses/{course}', [SuperuserController::class, 'updateCourse']);
+        Route::delete('/courses/{course}', [SuperuserController::class, 'destroyCourse']);
         Route::get('/audits', [SuperuserController::class, 'audits']);
+        Route::get('/audits/export', [SuperuserController::class, 'exportAudits']);
+        Route::get('/audits/{audit}', [SuperuserController::class, 'showAudit']);
         Route::get('/frasoft/logs', [SuperuserController::class, 'frasoftLogs']);
         Route::post('/frasoft/sync', [SuperuserController::class, 'frasoftSync']);
     });

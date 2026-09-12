@@ -21,8 +21,8 @@ class CommissionRuleVersion extends Model
     protected function casts(): array
     {
         return [
-            'percent' => 'decimal:3',
-            'qualified_percent' => 'decimal:3',
+            'percent' => 'decimal:1',
+            'qualified_percent' => 'decimal:1',
             'conditions' => 'array',
             'effective_from' => 'datetime',
             'effective_to' => 'datetime',
