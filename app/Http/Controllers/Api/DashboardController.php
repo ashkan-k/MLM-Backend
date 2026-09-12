@@ -10,14 +10,16 @@ use App\Models\Wallet;
 use App\Models\WithdrawalRequest;
 use App\Services\Commission\QualificationService;
 use App\Services\Organization\OrganizationTreeService;
+use App\Services\Promotion\PromotionService;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
-    public function show(Request $request, QualificationService $qualification, OrganizationTreeService $tree)
+    public function show(Request $request, QualificationService $qualification, OrganizationTreeService $tree, PromotionService $promotions)
     {
         $user = $request->user();
         $role = $request->attributes->get('active_role');
+        $promotions->autoSubmitIfEligible($user);
 
         $wallet = $role
             ? Wallet::query()->where('user_id', $user->id)->where('role_id', $role->id)->first()

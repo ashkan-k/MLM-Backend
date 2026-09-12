@@ -7,6 +7,7 @@ use App\Models\Wallet;
 use App\Models\WithdrawalRequest;
 use App\Services\Withdrawal\WithdrawalService;
 use Illuminate\Http\Request;
+use RuntimeException;
 
 class WithdrawalController extends Controller
 {
@@ -45,7 +46,11 @@ class WithdrawalController extends Controller
             'note' => ['nullable', 'string'],
         ]);
 
-        return response()->json($service->decide($request->user(), $withdrawal, $data['decision'], $data['note'] ?? ''));
+        try {
+            return response()->json($service->decide($request->user(), $withdrawal, $data['decision'], $data['note'] ?? ''));
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
 
     public function cancel(Request $request, WithdrawalRequest $withdrawal, WithdrawalService $service)

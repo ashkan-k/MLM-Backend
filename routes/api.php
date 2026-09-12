@@ -58,9 +58,11 @@ Route::middleware(['auth.api'])->group(function () {
 
         Route::get('/courses', [TrainingController::class, 'index']);
         Route::get('/courses/progress', [TrainingController::class, 'progress']);
+        Route::get('/courses/team-progress', [TrainingController::class, 'teamProgress']);
         Route::post('/courses/{course}/levels/{level}/submit', [TrainingController::class, 'submit']);
 
         Route::get('/chat/directory', [ChatController::class, 'directory']);
+        Route::get('/conversations/unread-count', [ChatController::class, 'unread']);
         Route::get('/conversations', [ChatController::class, 'index']);
         Route::post('/conversations', [ChatController::class, 'store']);
         Route::get('/conversations/{conversation}/messages', [ChatController::class, 'messages']);
@@ -68,6 +70,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::post('/conversations/{conversation}/read', [ChatController::class, 'read']);
         Route::post('/conversations/{conversation}/typing', [ChatController::class, 'typing']);
 
+        Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
         Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
@@ -83,7 +86,8 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/reports/export', [SuperuserController::class, 'exportReports']);
         Route::get('/users', [SuperuserController::class, 'users']);
         Route::post('/users', [SuperuserController::class, 'storeUser']);
-        Route::put('/users/{user}', [SuperuserController::class, 'updateUser']);
+        Route::post('/users/bulk', [SuperuserController::class, 'bulkUsers']);
+        Route::match(['put', 'post'], '/users/{user}', [SuperuserController::class, 'updateUser']);
         Route::delete('/users/{user}', [SuperuserController::class, 'destroyUser']);
         Route::post('/users/{user}/roles', [SuperuserController::class, 'assignRole']);
         Route::get('/roles', [SuperuserController::class, 'roles']);
@@ -94,6 +98,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/commission-rules', [SuperuserController::class, 'commissionRules']);
         Route::post('/commission-rules/{rule}', [SuperuserController::class, 'updateRule']);
         Route::match(['get', 'post'], '/courses', [SuperuserController::class, 'courses']);
+        Route::post('/courses/bulk', [SuperuserController::class, 'bulkCourses']);
         Route::put('/courses/{course}', [SuperuserController::class, 'updateCourse']);
         Route::delete('/courses/{course}', [SuperuserController::class, 'destroyCourse']);
         Route::get('/audits', [SuperuserController::class, 'audits']);

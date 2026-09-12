@@ -120,24 +120,33 @@ class OrganizationTreeService
 
         $build = function ($parentId) use (&$build, $byParent) {
             return ($byParent[$parentId] ?? collect())->map(function ($node) use ($build) {
+                $children = $build($node->id);
+                $descendantCount = collect($children)->sum(fn ($child) => 1 + ($child['descendant_count'] ?? 0));
+
                 return [
                     'id' => $node->id,
                     'user' => $node->user,
                     'role' => $node->role,
-                    'children' => $build($node->id),
+                    'descendant_count' => $descendantCount,
+                    'children' => $children,
                 ];
             })->values()->all();
         };
 
         if ($rootId) {
             $root = $nodes->firstWhere('id', $rootId);
+            if (! $root) {
+                return [];
+            }
+            $children = $build($root->id);
 
-            return $root ? [[
+            return [[
                 'id' => $root->id,
                 'user' => $root->user,
                 'role' => $root->role,
-                'children' => $build($root->id),
-            ]] : [];
+                'descendant_count' => collect($children)->sum(fn ($child) => 1 + ($child['descendant_count'] ?? 0)),
+                'children' => $children,
+            ]];
         }
 
         return $build(0);

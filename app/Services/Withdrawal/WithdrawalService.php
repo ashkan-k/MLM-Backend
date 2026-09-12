@@ -40,16 +40,37 @@ class WithdrawalService
                 throw new RuntimeException('مبلغ برداشت نامعتبر است.');
             }
 
+            $status = WithdrawalRequest::SENIOR_MANAGER_PENDING;
+            if ($user->isSuperuser()) {
+                $status = WithdrawalRequest::SUPERUSER_PENDING;
+            } elseif ($user->hasRole('senior_manager')) {
+                $status = WithdrawalRequest::SUPERUSER_PENDING;
+            }
+
             $withdrawal = WithdrawalRequest::query()->create([
                 'wallet_id' => $locked->id,
                 'user_id' => $user->id,
                 'amount' => $amount,
-                'status' => WithdrawalRequest::SENIOR_MANAGER_PENDING,
+                'status' => $status,
                 'idempotency_key' => $key,
                 'requested_at' => now(),
             ]);
 
             $this->wallets->hold($locked, $amount, 'wd-hold-'.$withdrawal->id, WithdrawalRequest::class, $withdrawal->id);
+
+            if ($status === WithdrawalRequest::SUPERUSER_PENDING) {
+                WithdrawalApproval::query()->create([
+                    'withdrawal_request_id' => $withdrawal->id,
+                    'approver_user_id' => $user->id,
+                    'stage' => 'senior_manager',
+                    'decision' => 'approved',
+                    'note' => $user->hasRole('senior_manager')
+                        ? 'تایید خودکار مرحله مدیر ارشد برای درخواست خودش'
+                        : 'رد شدن از مرحله مدیر ارشد توسط سوپریوزر',
+                    'decided_at' => now(),
+                ]);
+            }
+
             $this->audit->record($user, 'withdrawal.requested', $withdrawal, null, $withdrawal->toArray());
 
             return $withdrawal;
@@ -77,6 +98,23 @@ class WithdrawalService
                 $next = $decision === 'approved'
                     ? WithdrawalRequest::PROCESSING
                     : WithdrawalRequest::REJECTED;
+            } elseif ($withdrawal->status === WithdrawalRequest::REJECTED && $decision === 'approved') {
+                if (! $approver->hasRole('senior_manager') && ! $approver->isSuperuser()) {
+                    throw new RuntimeException('فقط مدیر ارشد یا سوپریوزر می‌تواند وضعیت ردشده را تغییر دهد.');
+                }
+                $withdrawal->loadMissing('wallet');
+                $this->wallets->hold(
+                    $withdrawal->wallet,
+                    (string) $withdrawal->amount,
+                    'wd-rehold-'.$withdrawal->id.'-'.Str::uuid(),
+                    WithdrawalRequest::class,
+                    $withdrawal->id
+                );
+                $stage = $approver->isSuperuser() ? 'superuser' : 'senior_manager';
+                $next = $approver->isSuperuser()
+                    ? WithdrawalRequest::PROCESSING
+                    : WithdrawalRequest::SUPERUSER_PENDING;
+                $withdrawal->failure_reason = null;
             } else {
                 throw new RuntimeException('این درخواست در وضعیت قابل تصمیم‌گیری نیست.');
             }

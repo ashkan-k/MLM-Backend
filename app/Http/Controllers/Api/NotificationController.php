@@ -15,6 +15,13 @@ class NotificationController extends Controller
         );
     }
 
+    public function unreadCount(Request $request)
+    {
+        return response()->json([
+            'unread' => Notification::query()->where('user_id', $request->user()->id)->whereNull('read_at')->count(),
+        ]);
+    }
+
     public function read(Request $request, Notification $notification)
     {
         abort_unless($notification->user_id === $request->user()->id, 403);

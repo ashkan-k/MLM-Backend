@@ -25,6 +25,7 @@ use App\Services\Report\SuperuserReportService;
 use App\Services\Wallet\WalletService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class SuperuserController extends Controller
@@ -72,12 +73,12 @@ class SuperuserController extends Controller
                 'موبایل' => $row['mobile'],
                 'نقش' => $row['role'],
                 'درصد' => $row['percent'],
-                'مبلغ' => $row['amount'],
+                'مبلغ (تومان)' => $row['amount'],
             ], $data['recent_commissions']),
             default => array_map(fn ($row) => [
                 'عملیات' => $row['label'],
                 'تعداد' => $row['count'],
-                'مبلغ' => $row['amount'],
+                'مبلغ (تومان)' => $row['amount'],
             ], $data['operations']),
         };
 
@@ -108,9 +109,43 @@ class SuperuserController extends Controller
             });
         }
 
+        if ($request->filled('is_active')) {
+            $query->where('is_active', $request->boolean('is_active'));
+        }
+
         $perPage = min(200, max(10, $request->integer('per_page', 30)));
 
         return response()->json($query->paginate($perPage));
+    }
+
+    public function bulkUsers(Request $request, AuditService $audit)
+    {
+        $data = $request->validate([
+            'action' => ['required', 'in:delete,activate,deactivate'],
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:users,id'],
+        ]);
+
+        $actorId = $request->user()?->id;
+        $done = 0;
+        foreach (User::query()->whereIn('id', $data['ids'])->get() as $user) {
+            if ($user->id === $actorId && in_array($data['action'], ['delete', 'deactivate'], true)) {
+                continue;
+            }
+
+            if ($data['action'] === 'delete') {
+                $this->destroyUser($request, $user, $audit);
+                $done++;
+                continue;
+            }
+
+            $old = $user->only(['name', 'mobile', 'email', 'is_active']);
+            $user->update(['is_active' => $data['action'] === 'activate']);
+            $audit->record($request->user(), 'user.updated', $user, $old, $user->only(['name', 'mobile', 'email', 'is_active']));
+            $done++;
+        }
+
+        return response()->json(['ok' => true, 'count' => $done]);
     }
 
     public function storeUser(Request $request, WalletService $wallets, OrganizationTreeService $tree, AuditService $audit)
@@ -122,6 +157,7 @@ class SuperuserController extends Controller
             'password' => ['required', 'min:8'],
             'is_active' => ['nullable', 'boolean'],
             'role_slugs' => ['required', 'array', 'min:1'],
+            'avatar' => ['nullable', 'image', 'max:4096'],
         ]);
 
         $user = User::query()->create([
@@ -131,6 +167,7 @@ class SuperuserController extends Controller
             'password' => $data['password'],
             'is_active' => $data['is_active'] ?? true,
         ]);
+        $this->storeAvatar($request, $user);
 
         $this->syncRoles($user, $data['role_slugs'], $wallets, $tree);
         $audit->record($request->user(), 'user.created', $user, null, $user->only(['name', 'mobile', 'email', 'is_active']));
@@ -147,6 +184,7 @@ class SuperuserController extends Controller
             'password' => ['nullable', 'min:8'],
             'is_active' => ['nullable', 'boolean'],
             'role_slugs' => ['nullable', 'array', 'min:1'],
+            'avatar' => ['nullable', 'image', 'max:4096'],
         ]);
 
         $old = $user->only(['name', 'mobile', 'email', 'is_active']);
@@ -160,6 +198,7 @@ class SuperuserController extends Controller
             $user->password = $data['password'];
         }
         $user->save();
+        $this->storeAvatar($request, $user);
 
         if (isset($data['role_slugs'])) {
             $this->syncRoles($user, $data['role_slugs'], $wallets, $tree);
@@ -414,6 +453,23 @@ class SuperuserController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    public function bulkCourses(Request $request, AuditService $audit)
+    {
+        $data = $request->validate([
+            'action' => ['required', 'in:delete'],
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:courses,id'],
+        ]);
+
+        $done = 0;
+        foreach (Course::query()->whereIn('id', $data['ids'])->get() as $course) {
+            $this->destroyCourse($request, $course, $audit);
+            $done++;
+        }
+
+        return response()->json(['ok' => true, 'count' => $done]);
+    }
+
     public function audits(Request $request)
     {
         $page = $this->auditQuery($request)->paginate(40);
@@ -581,6 +637,19 @@ class SuperuserController extends Controller
         }
 
         return $query;
+    }
+
+    private function storeAvatar(Request $request, User $user): void
+    {
+        if (! $request->hasFile('avatar')) {
+            return;
+        }
+
+        if ($user->avatar) {
+            Storage::disk('public')->delete($user->avatar);
+        }
+
+        $user->update(['avatar' => $request->file('avatar')->store('avatars', 'public')]);
     }
 
     private function presentAudit(AuditLog $log): AuditLog

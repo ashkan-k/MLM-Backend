@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\CourseLevel;
+use App\Models\User;
 use App\Models\UserCourseProgress;
+use App\Services\Organization\OrganizationTreeService;
 use Illuminate\Http\Request;
 
 class TrainingController extends Controller
@@ -59,6 +61,51 @@ class TrainingController extends Controller
                 ->where('user_id', $request->user()->id)
                 ->get()
         );
+    }
+
+    public function teamProgress(Request $request, OrganizationTreeService $tree)
+    {
+        $ids = $tree->descendants($request->user())->pluck('id');
+        if ($request->user()->isSuperuser()) {
+            $ids = User::query()->where('is_active', true)->pluck('id');
+        }
+
+        $courses = Course::query()->with('levels')->where('is_active', true)->get();
+        $progress = UserCourseProgress::query()
+            ->whereIn('user_id', $ids)
+            ->get()
+            ->groupBy('user_id');
+
+        $users = User::query()->whereIn('id', $ids)->orderBy('name')->get();
+
+        return response()->json($users->map(function (User $user) use ($courses, $progress) {
+            $rows = $progress->get($user->id, collect());
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'mobile' => $user->mobile,
+                'courses' => $courses->map(function (Course $course) use ($rows) {
+                    $levels = $course->levels;
+                    $done = $levels->filter(fn ($level) => optional($rows->firstWhere('course_level_id', $level->id))->status === 'completed')->count();
+                    return [
+                        'id' => $course->id,
+                        'title' => $course->title,
+                        'done' => $done,
+                        'total' => $levels->count(),
+                        'levels' => $levels->map(function ($level) use ($rows) {
+                            $row = $rows->firstWhere('course_level_id', $level->id);
+                            return [
+                                'id' => $level->id,
+                                'title' => $level->title,
+                                'passing_score' => $level->passing_score,
+                                'status' => $row?->status,
+                                'score' => $row?->score,
+                            ];
+                        })->values(),
+                    ];
+                })->values(),
+            ];
+        })->values());
     }
 
     public function submit(Request $request, Course $course, CourseLevel $level)

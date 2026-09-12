@@ -28,6 +28,11 @@ class ChatController extends Controller
         return response()->json($users);
     }
 
+    public function unread(Request $request, ChatService $chat)
+    {
+        return response()->json(['unread' => $chat->unreadCount($request->user())]);
+    }
+
     public function index(Request $request, ChatService $chat)
     {
         $user = $request->user();

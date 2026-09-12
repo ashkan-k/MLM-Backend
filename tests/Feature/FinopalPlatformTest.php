@@ -13,6 +13,7 @@ use App\Services\BenefitTransfer\BenefitTransferService;
 use App\Services\Gateway\GatewaySaleService;
 use App\Services\Integration\FraSoft\FraSoftSyncService;
 use App\Services\Promotion\PromotionService;
+use App\Services\Wallet\WalletService;
 use App\Services\Withdrawal\WithdrawalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -156,6 +157,35 @@ class FinopalPlatformTest extends TestCase
         $super = User::query()->where('mobile', '09120000000')->firstOrFail();
         $withdrawal = app(WithdrawalService::class)->decide($super, $withdrawal, 'approved', 'pay');
         $this->assertSame(WithdrawalRequest::COMPLETED, $withdrawal->status);
+    }
+
+    public function test_rejected_withdrawal_can_be_reopened(): void
+    {
+        $rep = User::query()->where('mobile', '09125555555')->firstOrFail();
+        $role = Role::query()->where('slug', 'representative')->firstOrFail();
+        $wallet = Wallet::query()->where('user_id', $rep->id)->where('role_id', $role->id)->firstOrFail();
+
+        $withdrawal = app(WithdrawalService::class)->request($rep, $wallet, '800.000', 'wd-reopen-1');
+        $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
+        $withdrawal = app(WithdrawalService::class)->decide($senior, $withdrawal, 'rejected', 'not now');
+        $this->assertSame(WithdrawalRequest::REJECTED, $withdrawal->status);
+
+        $withdrawal = app(WithdrawalService::class)->decide($senior, $withdrawal, 'approved', 'reopened');
+        $this->assertSame(WithdrawalRequest::SUPERUSER_PENDING, $withdrawal->status);
+    }
+
+    public function test_senior_manager_own_withdrawal_skips_first_stage(): void
+    {
+        $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
+        $role = Role::query()->where('slug', 'senior_manager')->firstOrFail();
+        $wallet = app(WalletService::class)->walletFor($senior, $role);
+        app(WalletService::class)->credit($wallet, '5000.000', 'adjustment', 'credit-senior-self-wd');
+
+        $withdrawal = app(WithdrawalService::class)->request($senior, $wallet, '500.000', 'wd-senior-self');
+        $this->assertSame(WithdrawalRequest::SUPERUSER_PENDING, $withdrawal->status);
+
+        $this->expectException(\RuntimeException::class);
+        app(WithdrawalService::class)->decide($senior, $withdrawal, 'approved', 'should fail');
     }
 
     public function test_tree_chat_allows_ancestors_and_denies_cross_branch(): void
@@ -324,6 +354,40 @@ class FinopalPlatformTest extends TestCase
         $this->assertFalse((bool) $user->fresh()->is_active);
     }
 
+    public function test_superuser_can_bulk_deactivate_users(): void
+    {
+        $token = $this->postJson('/api/auth/login', [
+            'mobile' => '09120000000',
+            'password' => 'Password123!',
+            'role_slug' => 'superuser',
+        ])->json('token');
+
+        $user = User::query()->where('mobile', '09127777777')->firstOrFail();
+
+        $this->withToken($token)->postJson('/api/superuser/users/bulk', [
+            'action' => 'deactivate',
+            'ids' => [$user->id],
+        ])->assertOk()->assertJsonPath('count', 1);
+
+        $this->assertFalse((bool) $user->fresh()->is_active);
+
+        $this->withToken($token)->postJson('/api/superuser/users/bulk', [
+            'action' => 'activate',
+            'ids' => [$user->id],
+        ])->assertOk();
+
+        $this->assertTrue((bool) $user->fresh()->is_active);
+
+        $super = User::query()->where('mobile', '09120000000')->firstOrFail();
+        $this->withToken($token)->postJson('/api/superuser/users/bulk', [
+            'action' => 'deactivate',
+            'ids' => [$super->id, $user->id],
+        ])->assertOk()->assertJsonPath('count', 1);
+
+        $this->assertTrue((bool) $super->fresh()->is_active);
+        $this->assertFalse((bool) $user->fresh()->is_active);
+    }
+
     public function test_superuser_reports_course_crud_and_one_decimal_rules(): void
     {
         $token = $this->postJson('/api/auth/login', [
@@ -401,5 +465,34 @@ class FinopalPlatformTest extends TestCase
         $this->withToken($token)->getJson('/api/superuser/audits/export')
             ->assertOk()
             ->assertJsonStructure(['data', 'count']);
+    }
+
+    public function test_representative_can_register_gateway_with_kyc(): void
+    {
+        $token = $this->postJson('/api/auth/login', [
+            'mobile' => '09125555555',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->json('token');
+
+        $this->withToken($token)->postJson('/api/gateway-sales', [
+            'external_id' => 'GW-KYC-1',
+            'name' => 'فروشگاه تست',
+            'amount' => 1500000,
+            'customer' => [
+                'name' => 'علی رضایی',
+                'mobile' => '09121230009',
+                'national_id' => '0012345678',
+                'sheba' => 'IR120170000000123456789001',
+                'father_name' => 'محمد',
+                'province' => 'تهران',
+                'city' => 'تهران',
+            ],
+        ])->assertCreated()->assertJsonPath('customer.national_id', '0012345678');
+
+        $this->assertDatabaseHas('customers', [
+            'national_id' => '0012345678',
+            'sheba' => 'IR120170000000123456789001',
+        ]);
     }
 }

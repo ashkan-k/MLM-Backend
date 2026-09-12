@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class User extends Authenticatable
@@ -20,12 +22,16 @@ class User extends Authenticatable
         'mobile',
         'email',
         'password',
+        'avatar',
         'is_active',
     ];
+
+    protected $appends = ['avatar_url'];
 
     protected $hidden = [
         'password',
         'remember_token',
+        'avatar',
     ];
 
     protected function casts(): array
@@ -35,6 +41,11 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_active' => 'boolean',
         ];
+    }
+
+    protected function avatarUrl(): Attribute
+    {
+        return Attribute::get(fn () => $this->avatar ? Storage::disk('public')->url($this->avatar) : null);
     }
 
     public function roles(): BelongsToMany

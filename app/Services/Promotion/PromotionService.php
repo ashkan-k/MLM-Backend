@@ -74,6 +74,37 @@ class PromotionService
         ];
     }
 
+    public function autoSubmitIfEligible(User $user): ?PromotionRequest
+    {
+        if ($user->isSuperuser() || $user->hasRole('senior_manager')) {
+            return null;
+        }
+
+        $target = $user->hasRole('sales_manager') ? 'development_manager' : 'sales_manager';
+        if ($user->hasRole($target)) {
+            return null;
+        }
+
+        $objective = collect($this->evaluate($user, $target))
+            ->whereNotIn('code', ['senior_assessment', 'team_satisfaction']);
+        if ($objective->isEmpty() || ! $objective->every(fn ($row) => $row['passed'])) {
+            return null;
+        }
+
+        $exists = PromotionRequest::query()
+            ->where('user_id', $user->id)
+            ->whereHas('targetRole', fn ($q) => $q->where('slug', $target))
+            ->whereIn('status', ['pending', 'approved'])
+            ->exists();
+        if ($exists) {
+            return null;
+        }
+
+        $from = $user->hasRole('sales_manager') ? 'sales_manager' : 'representative';
+
+        return $this->request($user, $from, $target);
+    }
+
     public function request(User $user, string $fromSlug, string $targetSlug): PromotionRequest
     {
         $from = Role::query()->where('slug', $fromSlug)->firstOrFail();

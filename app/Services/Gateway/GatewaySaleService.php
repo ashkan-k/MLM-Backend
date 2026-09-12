@@ -35,10 +35,35 @@ class GatewaySaleService
 
             $customer = null;
             if (! empty($payload['customer'])) {
+                $row = $payload['customer'];
                 $customer = Customer::query()->create([
-                    'name' => $payload['customer']['name'],
-                    'mobile' => $payload['customer']['mobile'] ?? null,
-                    'metadata' => $payload['customer']['metadata'] ?? null,
+                    'name' => $row['name'],
+                    'mobile' => $row['mobile'] ?? null,
+                    'person_type' => $row['person_type'] ?? 'individual',
+                    'national_id' => $row['national_id'] ?? null,
+                    'father_name' => $row['father_name'] ?? null,
+                    'birth_date' => $row['birth_date'] ?? null,
+                    'birth_certificate_no' => $row['birth_certificate_no'] ?? null,
+                    'birth_place' => $row['birth_place'] ?? null,
+                    'gender' => $row['gender'] ?? null,
+                    'email' => $row['email'] ?? null,
+                    'province' => $row['province'] ?? null,
+                    'city' => $row['city'] ?? null,
+                    'address' => $row['address'] ?? null,
+                    'postal_code' => $row['postal_code'] ?? null,
+                    'sheba' => $row['sheba'] ?? null,
+                    'bank_name' => $row['bank_name'] ?? null,
+                    'account_number' => $row['account_number'] ?? null,
+                    'account_holder' => $row['account_holder'] ?? null,
+                    'shop_name' => $row['shop_name'] ?? null,
+                    'shop_category' => $row['shop_category'] ?? null,
+                    'website' => $row['website'] ?? null,
+                    'company_name' => $row['company_name'] ?? null,
+                    'registration_no' => $row['registration_no'] ?? null,
+                    'economic_code' => $row['economic_code'] ?? null,
+                    'legal_national_id' => $row['legal_national_id'] ?? null,
+                    'documents' => $row['documents'] ?? null,
+                    'metadata' => $row['metadata'] ?? null,
                 ]);
             }
 
@@ -49,6 +74,9 @@ class GatewaySaleService
                     'source' => $payload['source'] ?? 'finopal',
                     'sale_amount' => $payload['amount'],
                     'is_active' => true,
+                    'metadata' => [
+                        'ownership_type' => $payload['ownership_type'] ?? 'solo',
+                    ],
                 ]
             );
 

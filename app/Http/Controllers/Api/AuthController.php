@@ -153,6 +153,7 @@ class AuthController extends Controller
             'name' => $user->name,
             'mobile' => $user->mobile,
             'email' => $user->email,
+            'avatar_url' => $user->avatar_url,
             'is_superuser' => $user->isSuperuser(),
             'roles' => $user->roles->map(fn ($r) => [
                 'id' => $r->id,

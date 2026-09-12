@@ -53,9 +53,9 @@ class SuperuserReportService
             'summary' => [
                 ['key' => 'users', 'label' => 'کاربران در محدوده', 'value' => $userIds === null ? User::query()->count() : count($userIds)],
                 ['key' => 'sales_count', 'label' => 'تعداد فروش درگاه', 'value' => $salesRows->count()],
-                ['key' => 'sales_amount', 'label' => 'مبلغ فروش', 'value' => (float) $salesRows->sum('amount'), 'money' => true],
+                ['key' => 'sales_amount', 'label' => 'مبلغ فروش (تومان)', 'value' => (float) $salesRows->sum('amount'), 'money' => true],
                 ['key' => 'commission_count', 'label' => 'تعداد پورسانت', 'value' => $commissionRows->count()],
-                ['key' => 'commission_amount', 'label' => 'جمع پورسانت', 'value' => (float) $commissionRows->sum('commission_amount'), 'money' => true],
+                ['key' => 'commission_amount', 'label' => 'جمع پورسانت (تومان)', 'value' => (float) $commissionRows->sum('commission_amount'), 'money' => true],
                 ['key' => 'withdrawals', 'label' => 'درخواست برداشت', 'value' => (clone $withdrawals)->count()],
                 ['key' => 'promotions', 'label' => 'درخواست ارتقاء', 'value' => (clone $promotions)->count()],
                 ['key' => 'transfers', 'label' => 'انتقال مزایا', 'value' => (clone $transfers)->count()],
