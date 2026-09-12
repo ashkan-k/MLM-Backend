@@ -1,0 +1,56 @@
+<?php
+
+namespace App\Services\Commission;
+
+use App\Models\Commission;
+use App\Models\GatewaySale;
+use App\Models\Role;
+use App\Models\User;
+use App\Services\Wallet\WalletService;
+
+class CommissionLedger
+{
+    public function __construct(private readonly WalletService $wallets) {}
+
+    public function post(
+        User $user,
+        Role $role,
+        GatewaySale $sale,
+        ?int $ruleVersionId,
+        string $baseAmount,
+        string $percent,
+        string $amount,
+        string $idempotencyKey,
+        array $metadata = []
+    ): Commission {
+        $existing = Commission::query()->where('idempotency_key', $idempotencyKey)->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $commission = Commission::query()->create([
+            'user_id' => $user->id,
+            'role_id' => $role->id,
+            'gateway_sale_id' => $sale->id,
+            'rule_version_id' => $ruleVersionId,
+            'base_amount' => $baseAmount,
+            'commission_percent' => $percent,
+            'commission_amount' => $amount,
+            'status' => 'posted',
+            'idempotency_key' => $idempotencyKey,
+            'metadata' => $metadata,
+        ]);
+
+        $wallet = $this->wallets->walletFor($user, $role);
+        $this->wallets->credit(
+            $wallet,
+            $amount,
+            'commission_credit',
+            'wallet-'.$idempotencyKey,
+            Commission::class,
+            $commission->id
+        );
+
+        return $commission;
+    }
+}

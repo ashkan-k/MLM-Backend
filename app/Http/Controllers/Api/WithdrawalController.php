@@ -1,0 +1,55 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\Wallet;
+use App\Models\WithdrawalRequest;
+use App\Services\Withdrawal\WithdrawalService;
+use Illuminate\Http\Request;
+
+class WithdrawalController extends Controller
+{
+    public function index(Request $request)
+    {
+        $user = $request->user();
+        $query = WithdrawalRequest::query()->with(['wallet.role', 'user', 'approvals']);
+
+        if (! $user->isSuperuser() && ! $user->hasRole('senior_manager')) {
+            $query->where('user_id', $user->id);
+        }
+
+        return response()->json($query->latest()->paginate(20));
+    }
+
+    public function store(Request $request, WithdrawalService $service)
+    {
+        $data = $request->validate([
+            'wallet_id' => ['required', 'exists:wallets,id'],
+            'amount' => ['required', 'numeric', 'min:0.001'],
+            'idempotency_key' => ['nullable', 'string'],
+        ]);
+
+        $wallet = Wallet::query()->findOrFail($data['wallet_id']);
+
+        return response()->json(
+            $service->request($request->user(), $wallet, (string) $data['amount'], $data['idempotency_key'] ?? null),
+            201
+        );
+    }
+
+    public function decide(Request $request, WithdrawalRequest $withdrawal, WithdrawalService $service)
+    {
+        $data = $request->validate([
+            'decision' => ['required', 'in:approved,rejected'],
+            'note' => ['nullable', 'string'],
+        ]);
+
+        return response()->json($service->decide($request->user(), $withdrawal, $data['decision'], $data['note'] ?? ''));
+    }
+
+    public function cancel(Request $request, WithdrawalRequest $withdrawal, WithdrawalService $service)
+    {
+        return response()->json($service->cancel($request->user(), $withdrawal));
+    }
+}

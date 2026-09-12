@@ -1,0 +1,170 @@
+<?php
+
+namespace App\Services\Promotion;
+
+use App\Models\GatewayRepresentative;
+use App\Models\Notification;
+use App\Models\PromotionCriteriaResult;
+use App\Models\PromotionRequest;
+use App\Models\RepresentativeReferral;
+use App\Models\Role;
+use App\Models\SystemSetting;
+use App\Models\User;
+use App\Models\UserRole;
+use App\Services\Audit\AuditService;
+use App\Services\Organization\OrganizationTreeService;
+use App\Services\Wallet\WalletService;
+use Illuminate\Support\Facades\DB;
+
+class PromotionService
+{
+    public function __construct(
+        private readonly AuditService $audit,
+        private readonly OrganizationTreeService $tree,
+        private readonly WalletService $wallets,
+    ) {}
+
+    public function evaluate(User $user, string $targetSlug): array
+    {
+        $settings = SystemSetting::getValue('promotion_criteria', $this->defaults());
+
+        if ($targetSlug === 'sales_manager') {
+            $points = (float) GatewayRepresentative::query()->where('user_id', $user->id)->sum('sales_points');
+            $referred = RepresentativeReferral::query()->where('referrer_user_id', $user->id)->pluck('referred_user_id');
+            $strong = GatewayRepresentative::query()
+                ->selectRaw('user_id, sum(sales_points) as pts')
+                ->whereIn('user_id', $referred)
+                ->groupBy('user_id')
+                ->havingRaw('sum(sales_points) >= ?', [$settings['sm_rep_points']])
+                ->count();
+
+            return [
+                ['code' => 'personal_points', 'required' => $settings['sm_personal_points'], 'actual' => $points, 'passed' => $points >= $settings['sm_personal_points']],
+                ['code' => 'new_representatives', 'required' => $settings['sm_new_reps'], 'actual' => $referred->count(), 'passed' => $referred->count() >= $settings['sm_new_reps']],
+                ['code' => 'strong_representatives', 'required' => $settings['sm_strong_reps'], 'actual' => $strong, 'passed' => $strong >= $settings['sm_strong_reps']],
+                ['code' => 'senior_assessment', 'required' => 1, 'actual' => 0, 'passed' => false],
+            ];
+        }
+
+        $from = $user->userRoles()->whereHas('role', fn ($q) => $q->where('slug', 'sales_manager'))->orderBy('effective_from')->first();
+        $years = $from ? $from->effective_from->diffInDays(now()) / 365 : 0;
+        $referred = RepresentativeReferral::query()->where('referrer_user_id', $user->id)->pluck('referred_user_id');
+        $strong = GatewayRepresentative::query()
+            ->selectRaw('user_id, sum(sales_points) as pts')
+            ->whereIn('user_id', $referred)
+            ->groupBy('user_id')
+            ->havingRaw('sum(sales_points) >= ?', [$settings['dm_rep_points']])
+            ->count();
+        $eligible = 0;
+        foreach (User::query()->whereIn('id', $referred)->get() as $rep) {
+            $eval = $this->evaluate($rep, 'sales_manager');
+            $objective = collect($eval)->where('code', '!=', 'senior_assessment');
+            if ($objective->every(fn ($c) => $c['passed'])) {
+                $eligible++;
+            }
+        }
+
+        return [
+            ['code' => 'tenure_years', 'required' => $settings['dm_years'], 'actual' => round($years, 3), 'passed' => $years >= $settings['dm_years']],
+            ['code' => 'registered_reps', 'required' => $settings['dm_new_reps'], 'actual' => $referred->count(), 'passed' => $referred->count() >= $settings['dm_new_reps']],
+            ['code' => 'strong_reps', 'required' => $settings['dm_strong_reps'], 'actual' => $strong, 'passed' => $strong >= $settings['dm_strong_reps']],
+            ['code' => 'team_satisfaction', 'required' => 1, 'actual' => 0, 'passed' => false],
+            ['code' => 'eligible_sales_managers', 'required' => $settings['dm_eligible_sms'], 'actual' => $eligible, 'passed' => $eligible >= $settings['dm_eligible_sms']],
+            ['code' => 'senior_assessment', 'required' => 1, 'actual' => 0, 'passed' => false],
+        ];
+    }
+
+    public function request(User $user, string $fromSlug, string $targetSlug): PromotionRequest
+    {
+        $from = Role::query()->where('slug', $fromSlug)->firstOrFail();
+        $target = Role::query()->where('slug', $targetSlug)->firstOrFail();
+
+        $request = PromotionRequest::query()->create([
+            'user_id' => $user->id,
+            'from_role_id' => $from->id,
+            'target_role_id' => $target->id,
+            'status' => 'pending',
+            'submitted_at' => now(),
+        ]);
+
+        foreach ($this->evaluate($user, $targetSlug) as $row) {
+            PromotionCriteriaResult::query()->create([
+                'promotion_request_id' => $request->id,
+                'criterion_code' => $row['code'],
+                'required_value' => $row['required'],
+                'actual_value' => $row['actual'],
+                'passed' => $row['passed'],
+                'evidence' => $row,
+            ]);
+        }
+
+        Role::query()->where('slug', 'senior_manager')->first()?->users()
+            ->wherePivot('is_active', true)
+            ->get()
+            ->each(function (User $senior) use ($user, $target) {
+                Notification::query()->create([
+                    'user_id' => $senior->id,
+                    'type' => 'promotion.pending',
+                    'title' => 'درخواست ارتقاء جدید',
+                    'body' => "{$user->name} واجد بررسی ارتقاء به {$target->name} است.",
+                    'data' => ['user_id' => $user->id],
+                ]);
+            });
+
+        return $request->load(['criteria', 'fromRole', 'targetRole']);
+    }
+
+    public function decide(User $reviewer, PromotionRequest $request, string $decision, string $note = ''): PromotionRequest
+    {
+        if (! $reviewer->hasRole('senior_manager') && ! $reviewer->isSuperuser()) {
+            abort(403, 'فقط مدیر ارشد می‌تواند ارتقاء را تایید کند.');
+        }
+
+        return DB::transaction(function () use ($reviewer, $request, $decision, $note) {
+            $request->feedback()->create([
+                'reviewer_user_id' => $reviewer->id,
+                'decision' => $decision,
+                'note' => $note,
+            ]);
+            $request->status = $decision === 'approved' ? 'approved' : 'rejected';
+            $request->decided_at = now();
+            $request->save();
+
+            if ($decision === 'approved') {
+                UserRole::query()->firstOrCreate(
+                    [
+                        'user_id' => $request->user_id,
+                        'role_id' => $request->target_role_id,
+                    ],
+                    [
+                        'effective_from' => now()->toDateString(),
+                        'is_primary' => false,
+                        'is_active' => true,
+                    ]
+                );
+                $this->wallets->walletFor($request->user, $request->targetRole);
+                $parent = $this->tree->activeNodesFor($reviewer)->first();
+                $this->tree->attach($request->user, $request->targetRole, $parent, now()->toDateString());
+            }
+
+            $this->audit->record($reviewer, 'promotion.'.$decision, $request);
+
+            return $request->fresh(['criteria', 'feedback', 'user', 'targetRole']);
+        });
+    }
+
+    private function defaults(): array
+    {
+        return [
+            'sm_personal_points' => 10000,
+            'sm_new_reps' => 60,
+            'sm_strong_reps' => 24,
+            'sm_rep_points' => 5000,
+            'dm_years' => 1,
+            'dm_new_reps' => 100,
+            'dm_strong_reps' => 30,
+            'dm_rep_points' => 10000,
+            'dm_eligible_sms' => 2,
+        ];
+    }
+}

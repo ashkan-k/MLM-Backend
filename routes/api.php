@@ -1,0 +1,96 @@
+<?php
+
+use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BenefitTransferController;
+use App\Http\Controllers\Api\ChatController;
+use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\GatewayController;
+use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\OrganizationController;
+use App\Http\Controllers\Api\PromotionController;
+use App\Http\Controllers\Api\ReferralController;
+use App\Http\Controllers\Api\SuperuserController;
+use App\Http\Controllers\Api\TrainingController;
+use App\Http\Controllers\Api\WalletController;
+use App\Http\Controllers\Api\WithdrawalController;
+use Illuminate\Support\Facades\Route;
+
+Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/register', [AuthController::class, 'register']);
+Route::post('/webhooks/frasoft', [SuperuserController::class, 'frasoftWebhook']);
+
+Route::middleware(['auth.api'])->group(function () {
+    Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::post('/auth/logout', [AuthController::class, 'logout']);
+    Route::post('/auth/switch-role', [AuthController::class, 'switchRole']);
+
+    Route::middleware(['active.role'])->group(function () {
+        Route::get('/dashboard', [DashboardController::class, 'show']);
+        Route::get('/organization/tree', [OrganizationController::class, 'tree']);
+        Route::get('/organization/team', [OrganizationController::class, 'team']);
+        Route::get('/representatives', [OrganizationController::class, 'representatives']);
+
+        Route::get('/wallets', [WalletController::class, 'show']);
+        Route::get('/wallets/aggregate', [WalletController::class, 'aggregate']);
+        Route::get('/wallet-transactions', [WalletController::class, 'transactions']);
+
+        Route::get('/gateways', [GatewayController::class, 'index']);
+        Route::get('/gateway-sales', [GatewayController::class, 'sales']);
+        Route::post('/gateway-sales', [GatewayController::class, 'store']);
+        Route::get('/commissions', [GatewayController::class, 'commissions']);
+
+        Route::get('/referrals/codes', [ReferralController::class, 'codes']);
+        Route::get('/referrals', [ReferralController::class, 'referrals']);
+        Route::get('/shared-links', [ReferralController::class, 'sharedLinks']);
+        Route::post('/shared-links', [ReferralController::class, 'createSharedLink']);
+        Route::post('/shared-links/{sharedLink}/approve', [ReferralController::class, 'approveSharedLink']);
+
+        Route::get('/withdrawals', [WithdrawalController::class, 'index']);
+        Route::post('/withdrawals', [WithdrawalController::class, 'store']);
+        Route::post('/withdrawals/{withdrawal}/decide', [WithdrawalController::class, 'decide']);
+        Route::post('/withdrawals/{withdrawal}/cancel', [WithdrawalController::class, 'cancel']);
+
+        Route::get('/promotions', [PromotionController::class, 'index']);
+        Route::get('/promotions/eligibility', [PromotionController::class, 'eligibility']);
+        Route::post('/promotions', [PromotionController::class, 'store']);
+        Route::post('/promotions/{promotion}/decide', [PromotionController::class, 'decide']);
+
+        Route::get('/courses', [TrainingController::class, 'index']);
+        Route::get('/courses/progress', [TrainingController::class, 'progress']);
+        Route::post('/courses/{course}/levels/{level}/submit', [TrainingController::class, 'submit']);
+
+        Route::get('/chat/directory', [ChatController::class, 'directory']);
+        Route::get('/conversations', [ChatController::class, 'index']);
+        Route::post('/conversations', [ChatController::class, 'store']);
+        Route::get('/conversations/{conversation}/messages', [ChatController::class, 'messages']);
+        Route::post('/conversations/{conversation}/messages', [ChatController::class, 'send']);
+        Route::post('/conversations/{conversation}/read', [ChatController::class, 'read']);
+        Route::post('/conversations/{conversation}/typing', [ChatController::class, 'typing']);
+
+        Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
+        Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
+
+        Route::get('/benefit-transfers', [BenefitTransferController::class, 'index']);
+        Route::post('/benefit-transfers', [BenefitTransferController::class, 'store']);
+        Route::get('/users/{user}/gateway-shares', [BenefitTransferController::class, 'shares']);
+    });
+
+    Route::middleware(['superuser'])->prefix('superuser')->group(function () {
+        Route::get('/stats', [SuperuserController::class, 'stats']);
+        Route::get('/users', [SuperuserController::class, 'users']);
+        Route::post('/users', [SuperuserController::class, 'storeUser']);
+        Route::post('/users/{user}/roles', [SuperuserController::class, 'assignRole']);
+        Route::get('/roles', [SuperuserController::class, 'roles']);
+        Route::get('/permissions', [SuperuserController::class, 'permissions']);
+        Route::post('/permissions/assign', [SuperuserController::class, 'assignPermission']);
+        Route::get('/settings', [SuperuserController::class, 'settings']);
+        Route::post('/settings', [SuperuserController::class, 'updateSetting']);
+        Route::get('/commission-rules', [SuperuserController::class, 'commissionRules']);
+        Route::post('/commission-rules/{rule}', [SuperuserController::class, 'updateRule']);
+        Route::match(['get', 'post'], '/courses', [SuperuserController::class, 'courses']);
+        Route::get('/audits', [SuperuserController::class, 'audits']);
+        Route::get('/frasoft/logs', [SuperuserController::class, 'frasoftLogs']);
+        Route::post('/frasoft/sync', [SuperuserController::class, 'frasoftSync']);
+    });
+});
