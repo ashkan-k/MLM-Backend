@@ -7,18 +7,27 @@ use App\Models\SharedLink;
 use App\Models\User;
 use App\Support\Money;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class SharedLinkService
 {
     public function create(User $creator, string $type, array $members): SharedLink
     {
+        $ids = array_map(fn ($member) => (int) $member['user_id'], $members);
+        if (count($ids) !== count(array_unique($ids))) {
+            throw ValidationException::withMessages(['members' => 'هر عضو فقط یک‌بار می‌تواند در لینک اشتراکی باشد.']);
+        }
+        if (User::query()->whereIn('id', $ids)->whereHas('roles', fn ($q) => $q->where('slug', 'superuser'))->exists()) {
+            throw ValidationException::withMessages(['members' => 'مدیر سامانه نمی‌تواند عضو لینک فروش اشتراکی باشد.']);
+        }
+
         $total = '0.000';
         foreach ($members as $member) {
-            $total = Money::add($total, (string) $member['share_percent']);
+            $total = Money::add($total, Money::normalize($member['share_percent']));
         }
         if (Money::cmp($total, '100.000') !== 0) {
-            throw new InvalidArgumentException('مجموع سهم لینک اشتراکی باید ۱۰۰ درصد باشد.');
+            throw ValidationException::withMessages(['members' => 'مجموع سهم لینک اشتراکی باید ۱۰۰ درصد باشد.']);
         }
 
         $link = SharedLink::query()->create([
@@ -44,7 +53,7 @@ class SharedLinkService
                     'type' => 'shared_link.approval',
                     'title' => 'تایید لینک اشتراکی',
                     'body' => "{$creator->name} شما را به یک لینک اشتراکی دعوت کرده است.",
-                    'data' => ['shared_link_id' => $link->id, 'token' => $link->token],
+                    'data' => ['shared_link_id' => $link->id, 'token' => $link->token, 'path' => 'referrals'],
                 ]);
             }
         }

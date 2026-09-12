@@ -45,6 +45,17 @@ class DashboardController extends Controller
             'pending_withdrawals' => WithdrawalRequest::query()
                 ->whereIn('status', ['senior_manager_pending', 'superuser_pending'])
                 ->count(),
+            'latest_promotion' => PromotionRequest::query()
+                ->with(['targetRole', 'feedback'])
+                ->where('user_id', $user->id)
+                ->latest()
+                ->first(),
+            'latest_rejected_promotion' => PromotionRequest::query()
+                ->with(['targetRole', 'feedback'])
+                ->where('user_id', $user->id)
+                ->where('status', 'rejected')
+                ->latest('decided_at')
+                ->first(),
         ]);
     }
 }

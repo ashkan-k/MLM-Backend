@@ -132,13 +132,13 @@ class PromotionService
         Role::query()->where('slug', 'senior_manager')->first()?->users()
             ->wherePivot('is_active', true)
             ->get()
-            ->each(function (User $senior) use ($user, $target) {
+            ->each(function (User $senior) use ($user, $target, $request) {
                 Notification::query()->create([
                     'user_id' => $senior->id,
                     'type' => 'promotion.pending',
                     'title' => 'درخواست ارتقاء جدید',
                     'body' => "{$user->name} واجد بررسی ارتقاء به {$target->name} است.",
-                    'data' => ['user_id' => $user->id],
+                    'data' => ['user_id' => $user->id, 'promotion_id' => $request->id, 'path' => 'promotions'],
                 ]);
             });
 
@@ -149,6 +149,9 @@ class PromotionService
     {
         if (! $reviewer->hasRole('senior_manager') && ! $reviewer->isSuperuser()) {
             abort(403, 'فقط مدیر ارشد می‌تواند ارتقاء را تایید کند.');
+        }
+        if ($decision === 'rejected' && trim($note) === '') {
+            abort(422, 'علت رد ارتقاء الزامی است.');
         }
 
         return DB::transaction(function () use ($reviewer, $request, $decision, $note) {
@@ -179,6 +182,22 @@ class PromotionService
             }
 
             $this->audit->record($reviewer, 'promotion.'.$decision, $request);
+
+            $targetName = $request->targetRole?->name ?? 'نقش جدید';
+            Notification::query()->create([
+                'user_id' => $request->user_id,
+                'type' => 'promotion.'.$decision,
+                'title' => $decision === 'approved' ? 'ارتقاء تایید شد' : 'ارتقاء رد شد',
+                'body' => $decision === 'approved'
+                    ? "درخواست ارتقاء شما به {$targetName} تایید شد."
+                    : "درخواست ارتقاء شما به {$targetName} رد شد. علت: {$note}",
+                'data' => [
+                    'promotion_id' => $request->id,
+                    'path' => 'promotions',
+                    'note' => $note,
+                    'decision' => $decision,
+                ],
+            ]);
 
             return $request->fresh(['criteria', 'feedback', 'user', 'targetRole']);
         });

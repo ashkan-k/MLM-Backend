@@ -111,11 +111,14 @@ class TrainingController extends Controller
     public function submit(Request $request, Course $course, CourseLevel $level)
     {
         $data = $request->validate([
-            'score' => ['required', 'numeric', 'min:0'],
+            'score' => ['nullable', 'numeric', 'min:0'],
             'progress_percent' => ['nullable', 'numeric'],
         ]);
 
-        $passed = (float) $data['score'] >= (float) $level->passing_score;
+        $hasExam = array_key_exists('score', $data) && $data['score'] !== null;
+        $passed = $hasExam
+            ? (float) $data['score'] >= (float) $level->passing_score
+            : true;
         $progress = UserCourseProgress::query()->updateOrCreate(
             [
                 'user_id' => $request->user()->id,
@@ -124,7 +127,7 @@ class TrainingController extends Controller
             ],
             [
                 'status' => $passed ? 'completed' : 'failed',
-                'score' => $data['score'],
+                'score' => $hasExam ? $data['score'] : 0,
                 'progress_percent' => $data['progress_percent'] ?? ($passed ? 100 : 50),
                 'completed_at' => $passed ? now() : null,
             ]

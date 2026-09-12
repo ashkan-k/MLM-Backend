@@ -60,7 +60,11 @@ wss.on('connection', (socket, req) => {
     try {
       const data = JSON.parse(String(raw))
       if (data.action === 'send' && data.token && data.conversation_id) {
-        await persistChat(data.token, data.conversation_id, data.body)
+        const message = await persistChat(data.token, data.conversation_id, data.body)
+        socket.send(JSON.stringify({
+          event: 'message.sent',
+          payload: { conversation_id: data.conversation_id, message },
+        }))
         return
       }
       if (data.action === 'typing' && data.conversation_id) {

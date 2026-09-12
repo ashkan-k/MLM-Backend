@@ -132,7 +132,7 @@ class DatabaseSeeder extends Seeder
         $wallets = app(WalletService::class);
 
         $users = [
-            'superuser' => ['name' => 'سوپریوزر سیستم', 'mobile' => '09120000000', 'roles' => ['superuser']],
+            'superuser' => ['name' => 'مدیر سامانه', 'mobile' => '09120000000', 'roles' => ['superuser']],
             'senior' => ['name' => 'مدیر ارشد فاینوپال', 'mobile' => '09121111111', 'roles' => ['senior_manager', 'development_manager', 'sales_manager', 'representative']],
             'dev' => ['name' => 'مدیر توسعه', 'mobile' => '09122222222', 'roles' => ['development_manager', 'sales_manager', 'representative']],
             'sales' => ['name' => 'مدیر فروش', 'mobile' => '09123333333', 'roles' => ['sales_manager', 'representative']],
@@ -228,5 +228,7 @@ class DatabaseSeeder extends Seeder
             'customer' => ['name' => 'مشتری اشتراکی', 'mobile' => '09121230002'],
             'idempotency_key' => 'seed-share-1',
         ]);
+
+        $this->call(DemoReviewSeeder::class);
     }
 }

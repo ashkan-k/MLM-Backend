@@ -10,7 +10,7 @@ class EnsureSuperuser
     public function handle(Request $request, Closure $next)
     {
         if (! $request->user()?->isSuperuser()) {
-            return response()->json(['message' => 'فقط سوپریوزر به این بخش دسترسی دارد.'], 403);
+            return response()->json(['message' => 'فقط مدیر سامانه به این بخش دسترسی دارد.'], 403);
         }
 
         return $next($request);

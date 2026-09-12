@@ -243,6 +243,48 @@ class FinopalPlatformTest extends TestCase
         $this->assertTrue($user->fresh()->hasRole('sales_manager'));
     }
 
+    public function test_promotion_reject_requires_note_and_notifies_applicant(): void
+    {
+        $user = User::query()->where('mobile', '09124444444')->firstOrFail();
+        $request = app(PromotionService::class)->request($user, 'representative', 'sales_manager');
+        $senior = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ])->assertOk();
+
+        $this->withToken($senior->json('token'))
+            ->postJson('/api/promotions/'.$request->id.'/decide', ['decision' => 'rejected'])
+            ->assertStatus(422);
+
+        $this->withToken($senior->json('token'))
+            ->postJson('/api/promotions/'.$request->id.'/decide', [
+                'decision' => 'rejected',
+                'note' => 'مصاحبه قبول نشد',
+            ])
+            ->assertOk()
+            ->assertJsonPath('status', 'rejected');
+
+        $rep = $this->postJson('/api/auth/login', [
+            'mobile' => '09124444444',
+            'password' => 'Password123!',
+            'role_slug' => 'representative_referrer',
+        ])->assertOk();
+
+        $notifs = $this->withToken($rep->json('token'))->getJson('/api/notifications')->assertOk();
+        $this->assertTrue(collect($notifs->json('data'))->contains(fn ($row) =>
+            ($row['type'] ?? '') === 'promotion.rejected'
+            && str_contains((string) ($row['body'] ?? ''), 'مصاحبه قبول نشد')
+            && ($row['data']['path'] ?? '') === 'promotions'
+        ));
+
+        $dash = $this->withToken($rep->json('token'))->getJson('/api/dashboard')->assertOk();
+        $this->assertSame('rejected', $dash->json('latest_rejected_promotion.status'));
+        $this->assertTrue(collect($dash->json('latest_rejected_promotion.feedback'))->contains(fn ($row) =>
+            ($row['decision'] ?? '') === 'rejected' && ($row['note'] ?? '') === 'مصاحبه قبول نشد'
+        ));
+    }
+
     public function test_training_progress_and_benefit_transfer(): void
     {
         $login = $this->postJson('/api/auth/login', [

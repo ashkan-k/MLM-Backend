@@ -216,7 +216,7 @@ class SuperuserController extends Controller
         }
 
         if ($user->isSuperuser() && User::query()->whereHas('roles', fn ($q) => $q->where('slug', 'superuser'))->count() <= 1) {
-            return response()->json(['message' => 'آخرین سوپریوزر را نمی‌توان حذف کرد.'], 422);
+            return response()->json(['message' => 'آخرین مدیر سامانه را نمی‌توان حذف کرد.'], 422);
         }
 
         $hasLedger = Commission::query()->where('user_id', $user->id)->exists()

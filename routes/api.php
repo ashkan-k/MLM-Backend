@@ -53,6 +53,7 @@ Route::middleware(['auth.api'])->group(function () {
 
         Route::get('/promotions', [PromotionController::class, 'index']);
         Route::get('/promotions/eligibility', [PromotionController::class, 'eligibility']);
+        Route::get('/promotions/{promotion}', [PromotionController::class, 'show']);
         Route::post('/promotions', [PromotionController::class, 'store']);
         Route::post('/promotions/{promotion}/decide', [PromotionController::class, 'decide']);
 
@@ -72,8 +73,8 @@ Route::middleware(['auth.api'])->group(function () {
 
         Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
         Route::get('/notifications', [NotificationController::class, 'index']);
-        Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
         Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
+        Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
 
         Route::get('/benefit-transfers', [BenefitTransferController::class, 'index']);
         Route::post('/benefit-transfers', [BenefitTransferController::class, 'store']);

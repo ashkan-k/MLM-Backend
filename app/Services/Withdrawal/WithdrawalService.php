@@ -66,7 +66,7 @@ class WithdrawalService
                     'decision' => 'approved',
                     'note' => $user->hasRole('senior_manager')
                         ? 'تایید خودکار مرحله مدیر ارشد برای درخواست خودش'
-                        : 'رد شدن از مرحله مدیر ارشد توسط سوپریوزر',
+                        : 'رد شدن از مرحله مدیر ارشد توسط مدیر سامانه',
                     'decided_at' => now(),
                 ]);
             }
@@ -92,7 +92,7 @@ class WithdrawalService
                     : WithdrawalRequest::REJECTED;
             } elseif ($withdrawal->status === WithdrawalRequest::SUPERUSER_PENDING) {
                 if (! $approver->isSuperuser()) {
-                    throw new RuntimeException('فقط سوپریوزر می‌تواند در این مرحله تایید کند.');
+                    throw new RuntimeException('فقط مدیر سامانه می‌تواند در این مرحله تایید کند.');
                 }
                 $stage = 'superuser';
                 $next = $decision === 'approved'
@@ -100,7 +100,7 @@ class WithdrawalService
                     : WithdrawalRequest::REJECTED;
             } elseif ($withdrawal->status === WithdrawalRequest::REJECTED && $decision === 'approved') {
                 if (! $approver->hasRole('senior_manager') && ! $approver->isSuperuser()) {
-                    throw new RuntimeException('فقط مدیر ارشد یا سوپریوزر می‌تواند وضعیت ردشده را تغییر دهد.');
+                    throw new RuntimeException('فقط مدیر ارشد یا مدیر سامانه می‌تواند وضعیت ردشده را تغییر دهد.');
                 }
                 $withdrawal->loadMissing('wallet');
                 $this->wallets->hold(

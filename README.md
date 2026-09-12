@@ -1,6 +1,6 @@
 # Finopal Sales Organization — Backend
 
-Laravel 12 API for the Finopal sales organization: five organizational roles, role-scoped wallets, historical gateway attribution, commission engine, two-stage withdrawals, training, promotions, tree-authorized chat, FraSoft sync, and a separate Superuser admin API.
+Laravel 12 API for the Finopal sales organization: five organizational roles, role-scoped wallets, historical gateway attribution, commission engine, two-stage withdrawals, training, promotions, tree-authorized chat, FraSoft sync, and a separate system-manager admin API.
 
 ## Requirements
 
@@ -30,7 +30,7 @@ Password for all users: `Password123!`
 
 | Mobile | Roles |
 |---|---|
-| 09120000000 | Superuser |
+| 09120000000 | System manager |
 | 09121111111 | Senior Manager + lower roles |
 | 09122222222 | Development Manager |
 | 09123333333 | Sales Manager |
