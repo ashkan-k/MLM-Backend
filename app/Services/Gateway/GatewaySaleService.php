@@ -11,7 +11,6 @@ use App\Models\Role;
 use App\Models\SharedLink;
 use App\Models\User;
 use App\Services\Commission\CommissionDistributor;
-use App\Services\Commission\CommissionEngine;
 use App\Services\Referral\SharedLinkService;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +19,6 @@ use Illuminate\Support\Str;
 class GatewaySaleService
 {
     public function __construct(
-        private readonly CommissionEngine $engine,
         private readonly SharedLinkService $sharedLinks,
         private readonly CommissionDistributor $distributor,
         private readonly GatewayReviewService $reviews,
@@ -74,6 +72,7 @@ class GatewaySaleService
                     'name' => $payload['name'] ?? $payload['external_id'],
                     'source' => $payload['source'] ?? 'finopal',
                     'sale_amount' => $payload['amount'],
+                    'merchant_code' => $payload['merchant_code'] ?? null,
                     'is_active' => true,
                     'metadata' => [
                         'ownership_type' => $payload['ownership_type'] ?? 'solo',
@@ -123,8 +122,9 @@ class GatewaySaleService
             $this->reviews->addReview($sale, null, 'submitted', 'submitted');
 
             if ($status === 'successful') {
-                $this->engine->process($sale);
-                $this->reviews->addReview($sale, null, 'commission_posted', 'approved', 'فروش از قبل تاییدشده؛ پورسانت ثبت شد.');
+                if (! empty($payload['merchant_code'])) {
+                    $sale->gateway?->update(['merchant_code' => $payload['merchant_code']]);
+                }
             } else {
                 $this->reviews->notifySubmitted($sale);
             }

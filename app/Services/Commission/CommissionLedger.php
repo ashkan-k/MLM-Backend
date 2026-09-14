@@ -22,7 +22,8 @@ class CommissionLedger
         string $percent,
         string $amount,
         string $idempotencyKey,
-        array $metadata = []
+        array $metadata = [],
+        ?int $transactionId = null,
     ): Commission {
         $existing = Commission::query()->where('idempotency_key', $idempotencyKey)->first();
         if ($existing) {
@@ -33,6 +34,7 @@ class CommissionLedger
             'user_id' => $user->id,
             'role_id' => $role->id,
             'gateway_sale_id' => $sale->id,
+            'finopal_transaction_id' => $transactionId,
             'rule_version_id' => $ruleVersionId,
             'base_amount' => Money::normalize($baseAmount, 3),
             'commission_percent' => Money::normalize($percent, 3),

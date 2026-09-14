@@ -7,14 +7,12 @@ use App\Models\GatewaySaleReview;
 use App\Models\Notification;
 use App\Models\User;
 use App\Services\Audit\AuditService;
-use App\Services\Commission\CommissionEngine;
 use App\Services\Organization\OrganizationTreeService;
 use Illuminate\Support\Facades\DB;
 
 class GatewayReviewService
 {
     public function __construct(
-        private readonly CommissionEngine $engine,
         private readonly OrganizationTreeService $tree,
         private readonly AuditService $audit,
     ) {}
@@ -58,107 +56,67 @@ class GatewayReviewService
         ]);
     }
 
-    public function inspect(User $actor, GatewaySale $sale, string $decision, string $note = ''): GatewaySale
+    public function inspect(User $actor, GatewaySale $sale, string $decision, string $note = '', ?string $merchantCode = null): GatewaySale
     {
         if (! $this->canInspect($actor, $sale)) {
             abort(403, 'فقط مدیر ارشد زیرمجموعه می‌تواند مدارک این درگاه را بازرسی کند.');
         }
         $sale->loadMissing('gateway');
-        if ($sale->status !== 'pending_inspection') {
-            abort(422, 'این درگاه در صف بازرسی مدارک نیست.');
+        if (! in_array($sale->status, ['pending_inspection', 'pending_shaparak'], true)) {
+            abort(422, 'این درگاه در صف تایید مدیر ارشد نیست.');
         }
         if ($decision === 'rejected' && trim($note) === '') {
             abort(422, 'علت رد بازرسی الزامی است.');
         }
+        $merchantCode = trim((string) $merchantCode);
+        if ($decision === 'approved') {
+            if ($merchantCode === '') {
+                abort(422, 'کد مرچنت فاینوپال الزامی است.');
+            }
+            $taken = \App\Models\Gateway::query()
+                ->where('merchant_code', $merchantCode)
+                ->where('id', '!=', $sale->gateway_id)
+                ->exists();
+            if ($taken) {
+                abort(422, 'این کد مرچنت قبلاً برای درگاه دیگری ثبت شده است.');
+            }
+        }
 
-        return DB::transaction(function () use ($actor, $sale, $decision, $note) {
+        return DB::transaction(function () use ($actor, $sale, $decision, $note, $merchantCode) {
+            $old = $sale->status;
+            $sale->inspected_at = now();
+            $sale->inspected_by = $actor->id;
+
             if ($decision === 'rejected') {
                 $sale->status = 'rejected';
                 $sale->rejected_at = now();
                 $sale->rejected_by = $actor->id;
                 $sale->rejection_note = $note;
-                $sale->inspected_at = now();
-                $sale->inspected_by = $actor->id;
                 $sale->save();
                 $this->addReview($sale, $actor, 'rejected', 'rejected', $note);
-                $this->audit->record($actor, 'gateway.rejected', $sale, ['status' => 'pending_inspection'], [
+                $this->audit->record($actor, 'gateway.rejected', $sale, ['status' => $old], [
                     'status' => 'rejected',
-                    'stage' => 'inspection',
                     'note' => $note,
                 ]);
-                $this->notifyRepresentatives($sale, 'gateway.rejected', 'درگاه رد شد', "مدارک درگاه «{$sale->gateway?->name}» در بازرسی رد شد. علت: {$note}");
-            } else {
-                $sale->status = 'pending_shaparak';
-                $sale->inspected_at = now();
-                $sale->inspected_by = $actor->id;
-                $sale->save();
-                $this->addReview($sale, $actor, 'inspected', 'approved', $note);
-                $this->audit->record($actor, 'gateway.inspected', $sale, ['status' => 'pending_inspection'], [
-                    'status' => 'pending_shaparak',
-                    'note' => $note,
-                ]);
-                $this->notifySeniors(
-                    $sale,
-                    'gateway.inspected',
-                    'درگاه آماده تایید شاپرک',
-                    "مدارک درگاه «{$sale->gateway?->name}» بازرسی شد. تایید فاینوپال / شاپرک باقی مانده است."
-                );
-            }
-
-            return $this->fresh($sale);
-        });
-    }
-
-    public function confirmShaparak(User $actor, GatewaySale $sale, string $decision, string $note = '', ?string $reference = null): GatewaySale
-    {
-        if (! $this->canInspect($actor, $sale)) {
-            abort(403, 'فقط مدیر ارشد زیرمجموعه می‌تواند تایید شاپرک را ثبت کند.');
-        }
-        $sale->loadMissing('gateway');
-        if ($sale->status !== 'pending_shaparak') {
-            abort(422, 'این درگاه در صف تایید شاپرک نیست.');
-        }
-        if ($decision === 'rejected' && trim($note) === '') {
-            abort(422, 'علت رد شاپرک الزامی است.');
-        }
-
-        return DB::transaction(function () use ($actor, $sale, $decision, $note, $reference) {
-            if ($decision === 'rejected') {
-                $sale->status = 'rejected';
-                $sale->rejected_at = now();
-                $sale->rejected_by = $actor->id;
-                $sale->rejection_note = $note;
-                $sale->shaparak_at = now();
-                $sale->shaparak_by = $actor->id;
-                $sale->shaparak_reference = $reference;
-                $sale->save();
-                $this->addReview($sale, $actor, 'rejected', 'rejected', $note, $reference);
-                $this->audit->record($actor, 'gateway.rejected', $sale, ['status' => 'pending_shaparak'], [
-                    'status' => 'rejected',
-                    'stage' => 'shaparak',
-                    'note' => $note,
-                    'reference' => $reference,
-                ]);
-                $this->notifyRepresentatives($sale, 'gateway.rejected', 'درگاه رد شد', "درگاه «{$sale->gateway?->name}» در تایید شاپرک / فاینوپال رد شد. علت: {$note}");
+                $this->notifyRepresentatives($sale, 'gateway.rejected', 'درگاه رد شد', "مدارک درگاه «{$sale->gateway?->name}» رد شد. علت: {$note}");
             } else {
                 $sale->status = 'successful';
-                $sale->shaparak_at = now();
-                $sale->shaparak_by = $actor->id;
-                $sale->shaparak_reference = $reference;
                 $sale->save();
-                $this->addReview($sale, $actor, 'shaparak_confirmed', 'approved', $note, $reference);
-                $this->engine->process($sale->fresh(['representatives', 'referrers', 'managers.role']));
-                $this->addReview($sale, $actor, 'commission_posted', 'approved', 'پورسانت نقش‌ها پس از تایید شاپرک ثبت شد.', $reference);
-                $this->audit->record($actor, 'gateway.shaparak_confirmed', $sale, ['status' => 'pending_shaparak'], [
+                $sale->gateway?->update([
+                    'merchant_code' => $merchantCode,
+                    'is_active' => true,
+                ]);
+                $this->addReview($sale, $actor, 'inspected', 'approved', $note, $merchantCode);
+                $this->audit->record($actor, 'gateway.approved', $sale, ['status' => $old], [
                     'status' => 'successful',
-                    'reference' => $reference,
+                    'merchant_code' => $merchantCode,
                     'note' => $note,
                 ]);
                 $this->notifyStakeholders(
                     $sale,
-                    'gateway.shaparak_confirmed',
+                    'gateway.approved',
                     'درگاه تایید شد',
-                    "درگاه «{$sale->gateway?->name}» در فاینوپال / شاپرک تایید شد و پورسانت به کیف پول نقش‌ها نشست."
+                    "درگاه «{$sale->gateway?->name}» با کد مرچنت فاینوپال تایید شد. پورسانت پس از هر تراکنش موفق این درگاه محاسبه می‌شود."
                 );
             }
 
@@ -169,7 +127,7 @@ class GatewayReviewService
     public function notifySubmitted(GatewaySale $sale): void
     {
         $name = $sale->gateway?->name ?? 'درگاه';
-        $body = "درگاه «{$name}» ثبت شد و منتظر بازرسی مدارک است. تا تایید شاپرک پورسانتی واریز نمی‌شود.";
+        $body = "درگاه «{$name}» ثبت شد و منتظر تایید مدیر ارشد است. تا ثبت کد مرچنت و تراکنش موفق، پورسانتی واریز نمی‌شود.";
 
         $this->notifySeniors($sale, 'gateway.submitted', 'درگاه جدید برای بازرسی', $body);
     }
@@ -229,7 +187,7 @@ class GatewayReviewService
     private function fresh(GatewaySale $sale): GatewaySale
     {
         return $sale->fresh([
-            'gateway',
+            'gateway.transactions' => fn ($q) => $q->latest('id')->limit(8),
             'customer',
             'representatives.user',
             'referrers.user',

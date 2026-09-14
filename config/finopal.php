@@ -16,4 +16,5 @@ return [
     ],
     'ws_server' => env('FINOPAL_WS_URL', 'http://127.0.0.1:6001'),
     'ws_secret' => env('FINOPAL_WS_SECRET', 'finopal-ws-secret'),
+    'webhook_secret' => env('FINOPAL_WEBHOOK_SECRET', ''),
 ];

@@ -11,7 +11,6 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\UserCourseProgress;
 use App\Models\UserRole;
-use App\Services\Gateway\GatewayReviewService;
 use App\Services\Gateway\GatewaySaleService;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Promotion\PromotionService;
@@ -170,7 +169,6 @@ class DemoReviewSeeder extends Seeder
         }
 
         $sales = app(GatewaySaleService::class);
-        $reviews = app(GatewayReviewService::class);
 
         $waitingInspect = $sales->record([
             'external_id' => 'GW-WAIT-INSPECT',
@@ -191,7 +189,7 @@ class DemoReviewSeeder extends Seeder
 
         $waitingShaparak = $sales->record([
             'external_id' => 'GW-WAIT-SHAPARAK',
-            'name' => 'درگاه در انتظار شاپرک',
+            'name' => 'درگاه دوم در انتظار تایید',
             'amount' => 2100000,
             'representative_user_id' => $rep->id,
             'customer' => [
@@ -205,10 +203,6 @@ class DemoReviewSeeder extends Seeder
             'idempotency_key' => 'demo-wait-shaparak',
         ]);
 
-        if ($waitingShaparak->status === 'pending_inspection') {
-            $reviews->inspect($senior, $waitingShaparak, 'approved', 'مدارک کامل است؛ منتظر تایید شاپرک.');
-        }
-
         Notification::query()->firstOrCreate(
             [
                 'user_id' => $senior->id,
@@ -216,7 +210,7 @@ class DemoReviewSeeder extends Seeder
                 'title' => 'درگاه جدید برای بازرسی',
             ],
             [
-                'body' => 'درگاه «درگاه در انتظار بازرسی» ثبت شده و تا تایید شاپرک پورسانتی واریز نمی‌شود.',
+                'body' => 'درگاه «درگاه در انتظار بازرسی» ثبت شده و تا تایید مدیر ارشد و تراکنش موفق فاینوپال پورسانتی واریز نمی‌شود.',
                 'data' => ['gateway_sale_id' => $waitingInspect->id, 'path' => 'gateways', 'demo' => true],
             ]
         );

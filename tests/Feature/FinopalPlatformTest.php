@@ -124,6 +124,7 @@ class FinopalPlatformTest extends TestCase
             'representative_user_id' => $rep->id,
             'idempotency_key' => 'idem-sale-1',
             'status' => 'successful',
+            'merchant_code' => 'fino-idem-0001',
         ]);
         $second = $service->record([
             'external_id' => 'GW-IDEM-1',
@@ -132,13 +133,33 @@ class FinopalPlatformTest extends TestCase
             'representative_user_id' => $rep->id,
             'idempotency_key' => 'idem-sale-1',
             'status' => 'successful',
+            'merchant_code' => 'fino-idem-0001',
         ]);
 
         $this->assertSame($first->id, $second->id);
+
+        $payload = [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-idem-0001',
+            'authority' => 'FP_IDEM_1',
+            'amount' => 500000,
+            'profit' => 500000,
+            'currency' => 'IRT',
+            'status' => 'verified',
+            'code' => 100,
+        ];
+        $this->postJson('/api/webhooks/finopal/transaction', $payload, [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk()->assertJsonPath('duplicate', false);
+        $this->postJson('/api/webhooks/finopal/transaction', $payload, [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk()->assertJsonPath('duplicate', true);
+
         $this->assertSame(
             Commission::query()->where('gateway_sale_id', $first->id)->count(),
             Commission::query()->where('gateway_sale_id', $second->id)->count()
         );
+        $this->assertSame(1, \App\Models\FinopalTransaction::query()->where('authority', 'FP_IDEM_1')->count());
 
         $tx = WalletTransaction::query()->first();
         $this->assertDatabaseHas('wallet_transactions', ['id' => $tx->id, 'amount' => $tx->amount]);
@@ -572,7 +593,7 @@ class FinopalPlatformTest extends TestCase
         $this->assertSame(0, Commission::query()->where('gateway_sale_id', $created->json('id'))->count());
     }
 
-    public function test_gateway_commission_waits_for_inspection_and_shaparak(): void
+    public function test_gateway_approval_requires_merchant_code_and_posts_no_commission(): void
     {
         $repToken = $this->postJson('/api/auth/login', [
             'mobile' => '09125555555',
@@ -599,6 +620,7 @@ class FinopalPlatformTest extends TestCase
 
         $this->withToken($repToken)->postJson("/api/gateway-sales/{$saleId}/inspect", [
             'decision' => 'approved',
+            'merchant_code' => 'fino-review-0001',
         ])->assertForbidden();
 
         $seniorToken = $this->postJson('/api/auth/login', [
@@ -610,23 +632,87 @@ class FinopalPlatformTest extends TestCase
         $this->withToken($seniorToken)->postJson("/api/gateway-sales/{$saleId}/inspect", [
             'decision' => 'approved',
             'note' => 'مدارک کامل است',
-        ])->assertOk()->assertJsonPath('status', 'pending_shaparak');
+        ])->assertUnprocessable();
 
-        $this->assertSame(0, Commission::query()->where('gateway_sale_id', $saleId)->count());
-
-        $this->withToken($repToken)->postJson("/api/gateway-sales/{$saleId}/shaparak", [
+        $this->withToken($seniorToken)->postJson("/api/gateway-sales/{$saleId}/inspect", [
             'decision' => 'approved',
-        ])->assertForbidden();
-
-        $this->withToken($seniorToken)->postJson("/api/gateway-sales/{$saleId}/shaparak", [
-            'decision' => 'approved',
-            'note' => 'تایید فاینوپال و شاپرک',
-            'reference' => 'SHP-TEST-19',
+            'note' => 'مدارک کامل است',
+            'merchant_code' => 'fino-review-0001',
         ])->assertOk()
             ->assertJsonPath('status', 'successful')
-            ->assertJsonPath('shaparak_reference', 'SHP-TEST-19');
+            ->assertJsonPath('gateway.merchant_code', 'fino-review-0001');
 
-        $this->assertGreaterThan(0, Commission::query()->where('gateway_sale_id', $saleId)->count());
+        $this->assertSame(0, Commission::query()->where('gateway_sale_id', $saleId)->count());
+        $this->assertDatabaseHas('gateways', [
+            'external_id' => 'GW-REVIEW-1',
+            'merchant_code' => 'fino-review-0001',
+            'is_active' => 1,
+        ]);
+    }
+
+    public function test_finopal_transaction_webhook_posts_commissions_from_profit(): void
+    {
+        $this->postJson('/api/webhooks/finopal/transaction', [
+            'merchant_id' => 'fino-unknown',
+            'amount' => 1000,
+            'profit' => 100,
+            'currency' => 'IRT',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertNotFound();
+
+        $this->postJson('/api/webhooks/finopal/transaction', [
+            'merchant_id' => 'fino-seed-share-0001',
+            'amount' => 1000,
+            'profit' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'wrong-secret',
+        ])->assertUnauthorized();
+
+        $created = $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-seed-share-0001',
+            'authority' => 'FP_WEBHOOK_SHARE_NEW',
+            'amount' => 400000,
+            'profit' => 40000,
+            'currency' => 'IRT',
+            'status' => 'OK',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk()
+            ->assertJsonPath('duplicate', false)
+            ->assertJsonPath('profit', '40000.000');
+
+        $this->assertGreaterThan(0, $created->json('commissions'));
+
+        $sale = GatewaySale::query()->whereHas('gateway', fn ($q) => $q->where('external_id', 'GW-SHARE-1'))->firstOrFail();
+        $fromWebhook = Commission::query()
+            ->where('gateway_sale_id', $sale->id)
+            ->where('finopal_transaction_id', $created->json('id'))
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->get();
+
+        $this->assertCount(2, $fromWebhook);
+        foreach ($fromWebhook as $row) {
+            $this->assertSame('7.500', (string) $row->commission_percent);
+            $this->assertSame('40000.000', (string) $row->base_amount);
+        }
+
+        $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-seed-share-0001',
+            'authority' => 'FP_WEBHOOK_SHARE_NEW',
+            'amount' => 400000,
+            'profit' => 40000,
+            'currency' => 'IRT',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk()->assertJsonPath('duplicate', true);
+
+        $this->assertSame(1, \App\Models\FinopalTransaction::query()->where('authority', 'FP_WEBHOOK_SHARE_NEW')->count());
     }
 
     public function test_only_senior_manager_can_list_or_create_benefit_transfers(): void

@@ -2,6 +2,7 @@
 
 namespace App\Services\Commission;
 
+use App\Models\FinopalTransaction;
 use App\Models\GatewaySale;
 use App\Models\Role;
 use App\Models\User;
@@ -17,50 +18,61 @@ class CommissionEngine
         private readonly CommissionLedger $ledger,
     ) {}
 
-    public function process(GatewaySale $sale): array
+    public function process(GatewaySale $sale, ?FinopalTransaction $transaction = null): array
     {
         if ($sale->status !== 'successful') {
             return [];
         }
+        if ($transaction === null) {
+            return [];
+        }
 
-        return DB::transaction(function () use ($sale) {
+        return DB::transaction(function () use ($sale, $transaction) {
             $sale->load(['representatives.user', 'referrers.user', 'managers.user', 'managers.role']);
             $this->distributor->split($sale);
             $created = [];
+            $at = $transaction->paid_at ?? $sale->sold_at;
+            $base = (string) $transaction->profit;
 
             foreach ($sale->representatives as $row) {
                 $created[] = $this->creditRole(
                     $sale,
+                    $transaction,
                     $row->user,
                     'representative',
                     $this->calculator->sharedPercent(
-                        $this->resolvedPercent('representative', $row->user, $sale),
+                        $this->resolvedPercent('representative', $row->user, $at),
                         (string) $row->share_percent
                     ),
-                    ['share_percent' => $row->share_percent, 'sales_points' => $row->sales_points]
+                    $base,
+                    ['share_percent' => $row->share_percent, 'sales_points' => $row->sales_points, 'finopal_transaction_id' => $transaction->id]
                 );
             }
 
             foreach ($sale->referrers as $row) {
                 $created[] = $this->creditRole(
                     $sale,
+                    $transaction,
                     $row->user,
                     'representative_referrer',
                     $this->calculator->sharedPercent(
-                        $this->resolvedPercent('representative_referrer', $row->user, $sale),
+                        $this->resolvedPercent('representative_referrer', $row->user, $at),
                         (string) $row->share_percent
                     ),
-                    ['share_percent' => $row->share_percent]
+                    $base,
+                    ['share_percent' => $row->share_percent, 'finopal_transaction_id' => $transaction->id]
                 );
             }
 
             foreach ($sale->managers as $row) {
                 $created[] = $this->creditRole(
                     $sale,
+                    $transaction,
                     $row->user,
                     $row->role->slug,
-                    $this->resolvedPercent($row->role->slug, $row->user, $sale),
-                    ['manager_role' => $row->role->slug]
+                    $this->resolvedPercent($row->role->slug, $row->user, $at),
+                    $base,
+                    ['manager_role' => $row->role->slug, 'finopal_transaction_id' => $transaction->id]
                 );
             }
 
@@ -68,11 +80,11 @@ class CommissionEngine
         });
     }
 
-    private function resolvedPercent(string $roleSlug, User $user, GatewaySale $sale): string
+    private function resolvedPercent(string $roleSlug, User $user, mixed $at): string
     {
-        $version = $this->rules->resolve($roleSlug, $sale->sold_at);
+        $version = $this->rules->resolve($roleSlug, $at);
         $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
-        $qualified = $this->qualification->isQualified($roleSlug, $user, $role->id, $sale->sold_at);
+        $qualified = $this->qualification->isQualified($roleSlug, $user, $role->id, $at);
 
         if (! $version) {
             return '0.000';
@@ -85,23 +97,31 @@ class CommissionEngine
         );
     }
 
-    private function creditRole(GatewaySale $sale, User $user, string $roleSlug, string $percent, array $metadata): mixed
-    {
+    private function creditRole(
+        GatewaySale $sale,
+        FinopalTransaction $transaction,
+        User $user,
+        string $roleSlug,
+        string $percent,
+        string $base,
+        array $metadata,
+    ): mixed {
         $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
-        $version = $this->rules->resolve($roleSlug, $sale->sold_at);
-        $amount = $this->calculator->amount((string) $sale->amount, $percent);
-        $key = implode(':', ['commission', $sale->id, $user->id, $role->id]);
+        $version = $this->rules->resolve($roleSlug, $transaction->paid_at ?? $sale->sold_at);
+        $amount = $this->calculator->amount($base, $percent);
+        $key = implode(':', ['commission', 'tx', $transaction->id, $user->id, $role->id]);
 
         return $this->ledger->post(
             $user,
             $role,
             $sale,
             $version?->id,
-            (string) $sale->amount,
+            $base,
             $percent,
             $amount,
             $key,
-            $metadata + ['qualified_percent' => $percent]
+            $metadata + ['qualified_percent' => $percent],
+            $transaction->id,
         );
     }
 }

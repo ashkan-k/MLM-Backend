@@ -30,7 +30,7 @@ class GatewayController extends Controller
     {
         $user = $request->user();
         $query = GatewaySale::query()->with([
-            'gateway',
+            'gateway.transactions' => fn ($q) => $q->latest('id')->limit(8),
             'customer',
             'representatives.user',
             'referrers.user',
@@ -125,7 +125,7 @@ class GatewayController extends Controller
         $this->assertCanView($request->user(), $sale);
 
         return response()->json($sale->load([
-            'gateway',
+            'gateway.transactions' => fn ($q) => $q->latest('id')->limit(8),
             'customer',
             'representatives.user',
             'referrers.user',
@@ -147,31 +147,15 @@ class GatewayController extends Controller
         $data = $request->validate([
             'decision' => ['required', 'in:approved,rejected'],
             'note' => ['nullable', 'string'],
+            'merchant_code' => ['required_if:decision,approved', 'nullable', 'string', 'max:64'],
         ]);
 
-        return response()->json($reviews->inspect($user, $sale, $data['decision'], $data['note'] ?? ''));
-    }
-
-    public function shaparak(Request $request, GatewaySale $sale, GatewayReviewService $reviews, PermissionService $permissions)
-    {
-        $user = $request->user();
-        $role = $request->attributes->get('active_role');
-        if (! $user->isSuperuser()) {
-            $permissions->authorize($user, 'senior_manager.gateway.inspect', $role);
-        }
-
-        $data = $request->validate([
-            'decision' => ['required', 'in:approved,rejected'],
-            'note' => ['nullable', 'string'],
-            'reference' => ['nullable', 'string', 'max:120'],
-        ]);
-
-        return response()->json($reviews->confirmShaparak(
+        return response()->json($reviews->inspect(
             $user,
             $sale,
             $data['decision'],
             $data['note'] ?? '',
-            $data['reference'] ?? null,
+            $data['merchant_code'] ?? null,
         ));
     }
 

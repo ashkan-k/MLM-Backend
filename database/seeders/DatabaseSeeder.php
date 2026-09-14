@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Models\UserRole;
 use App\Support\PermissionCatalog;
 use App\Services\Gateway\GatewaySaleService;
+use App\Services\Integration\Finopal\FinopalTransactionService;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Referral\SharedLinkService;
 use App\Services\Wallet\WalletService;
@@ -240,6 +241,7 @@ class DatabaseSeeder extends Seeder
             'customer' => ['name' => 'مشتری یک', 'mobile' => '09121230001'],
             'idempotency_key' => 'seed-solo-1',
             'status' => 'successful',
+            'merchant_code' => 'fino-seed-solo-0001',
         ]);
         $sales->record([
             'external_id' => 'GW-SHARE-1',
@@ -249,6 +251,7 @@ class DatabaseSeeder extends Seeder
             'customer' => ['name' => 'مشتری اشتراکی', 'mobile' => '09121230002'],
             'idempotency_key' => 'seed-share-1',
             'status' => 'successful',
+            'merchant_code' => 'fino-seed-share-0001',
         ]);
         $sales->record([
             'external_id' => 'GW-MULTI-B-1',
@@ -258,6 +261,39 @@ class DatabaseSeeder extends Seeder
             'customer' => ['name' => 'مشتری انتقال مزایا', 'mobile' => '09121230077'],
             'idempotency_key' => 'demo-multi-b-gateway-1',
             'status' => 'successful',
+            'merchant_code' => 'fino-seed-multib-0001',
+        ]);
+
+        $transactions = app(FinopalTransactionService::class);
+        $transactions->ingest([
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-seed-solo-0001',
+            'authority' => 'FP_SEED_SOLO_1',
+            'amount' => 1000000,
+            'profit' => 1000000,
+            'currency' => 'IRT',
+            'status' => 'verified',
+            'code' => 100,
+        ]);
+        $transactions->ingest([
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-seed-share-0001',
+            'authority' => 'FP_SEED_SHARE_1',
+            'amount' => 2000000,
+            'profit' => 2000000,
+            'currency' => 'IRT',
+            'status' => 'verified',
+            'code' => 100,
+        ]);
+        $transactions->ingest([
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-seed-multib-0001',
+            'authority' => 'FP_SEED_MULTIB_1',
+            'amount' => 1800000,
+            'profit' => 1800000,
+            'currency' => 'IRT',
+            'status' => 'verified',
+            'code' => 100,
         ]);
 
         $this->call(GeoSeeder::class);

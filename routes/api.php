@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/webhooks/frasoft', [SuperuserController::class, 'frasoftWebhook']);
+Route::post('/webhooks/finopal/transaction', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'transaction']);
 
 Route::middleware(['auth.api'])->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
@@ -42,7 +43,6 @@ Route::middleware(['auth.api'])->group(function () {
         Route::post('/gateway-sales', [GatewayController::class, 'store']);
         Route::get('/gateway-sales/{sale}', [GatewayController::class, 'show']);
         Route::post('/gateway-sales/{sale}/inspect', [GatewayController::class, 'inspect']);
-        Route::post('/gateway-sales/{sale}/shaparak', [GatewayController::class, 'shaparak']);
         Route::get('/commissions', [GatewayController::class, 'commissions']);
 
         Route::get('/referrals/codes', [ReferralController::class, 'codes']);

@@ -32,9 +32,7 @@ class PermissionCatalog
     public static function actionPermissions(): array
     {
         return [
-            'senior_manager.gateway.inspect' => ['name' => 'مدیر ارشد / بازرسی مدارک درگاه', 'roles' => ['senior_manager']],
-            'senior_manager.gateway.shaparak' => ['name' => 'مدیر ارشد / تایید شاپرک و فاینوپال', 'roles' => ['senior_manager']],
-            'superuser.gateway.shaparak' => ['name' => 'تایید شاپرک و فاینوپال', 'roles' => ['senior_manager']],
+            'senior_manager.gateway.inspect' => ['name' => 'مدیر ارشد / تایید درگاه و ثبت کد مرچنت فاینوپال', 'roles' => ['senior_manager']],
         ];
     }
 

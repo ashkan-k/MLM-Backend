@@ -42,8 +42,7 @@ class DashboardController extends Controller
                 ->where('status', 'successful')
                 ->where('sold_at', '>=', now()->startOfMonth())
                 ->count(),
-            'pending_gateway_inspections' => GatewaySale::query()->where('status', 'pending_inspection')->count(),
-            'pending_gateway_shaparak' => GatewaySale::query()->where('status', 'pending_shaparak')->count(),
+            'pending_gateway_inspections' => GatewaySale::query()->whereIn('status', ['pending_inspection', 'pending_shaparak'])->count(),
             'pending_promotions' => PromotionRequest::query()->where('status', 'pending')->count(),
             'pending_withdrawals' => WithdrawalRequest::query()
                 ->whereIn('status', ['senior_manager_pending', 'superuser_pending'])

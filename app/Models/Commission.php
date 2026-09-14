@@ -11,6 +11,7 @@ class Commission extends Model
         'user_id',
         'role_id',
         'gateway_sale_id',
+        'finopal_transaction_id',
         'rule_version_id',
         'base_amount',
         'commission_percent',
@@ -23,7 +24,7 @@ class Commission extends Model
     protected function casts(): array
     {
         return [
-            'base_amount' => 'decimal:2',
+            'base_amount' => 'decimal:3',
             'commission_percent' => 'decimal:3',
             'commission_amount' => 'decimal:3',
             'metadata' => 'array',
@@ -43,6 +44,11 @@ class Commission extends Model
     public function sale(): BelongsTo
     {
         return $this->belongsTo(GatewaySale::class, 'gateway_sale_id');
+    }
+
+    public function transaction(): BelongsTo
+    {
+        return $this->belongsTo(FinopalTransaction::class, 'finopal_transaction_id');
     }
 
     public function ruleVersion(): BelongsTo

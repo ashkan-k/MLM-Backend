@@ -9,6 +9,7 @@ class Gateway extends Model
 {
     protected $fillable = [
         'external_id',
+        'merchant_code',
         'name',
         'source',
         'sale_amount',
@@ -28,5 +29,10 @@ class Gateway extends Model
     public function sales(): HasMany
     {
         return $this->hasMany(GatewaySale::class);
+    }
+
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(FinopalTransaction::class);
     }
 }

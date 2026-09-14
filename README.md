@@ -1,6 +1,6 @@
 # Finopal Sales Organization — Backend
 
-Laravel 12 API: five organizational roles, role-scoped wallets, gateway KYC review (inspection + Shaparak/Finopal), commission engine, two-stage withdrawals, training, promotions, tree-authorized chat, FraSoft sync, and a separate system-manager admin API.
+Laravel 12 API: five organizational roles, role-scoped wallets, gateway KYC review (senior manager + Finopal merchant code), Finopal transaction webhooks, commission engine, two-stage withdrawals, training, promotions, tree-authorized chat, FraSoft sync, and a separate system-manager admin API.
 
 ## Requirements
 
@@ -55,9 +55,11 @@ SHOP_MAKER_DB_PASSWORD=
 
 On a server, run `migrate`, `geo:import`, and `storage:link` after deploy. `geo:import` folds Arabic presentation forms so searches like «قزوین» match.
 
-## Gateway review
+## Gateway review and Finopal commissions
 
-KYC submit → `pending_inspection` (senior manager, downline only) → `pending_shaparak` (same senior manager records Finopal/Shaparak) → `successful` + commissions. Percents and amounts are floored to 3 decimal places. FraSoft inbound sales stay `successful` immediately.
+KYC submit → `pending_inspection` (senior manager, downline only). Approve requires the Finopal `merchant_id` stored as `gateways.merchant_code` and moves the sale to `successful` with **no commissions**. Each later verified payment is posted to `POST /api/webhooks/finopal/transaction` (`X-Finopal-Webhook-Secret` = `FINOPAL_WEBHOOK_SECRET`). Commission base is `profit` (gateway profit on that payment), split by existing role/referrer/tree percents, floored to 3 decimals. FraSoft inbound sales stay `successful` immediately but still wait for a Finopal webhook before commissions.
+
+Set `FINOPAL_WEBHOOK_SECRET` in `.env`. Full payload for Finopal developers is in the root `README.md`.
 
 ## Demo accounts
 

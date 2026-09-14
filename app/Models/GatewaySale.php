@@ -68,6 +68,11 @@ class GatewaySale extends Model
         return $this->hasMany(Commission::class);
     }
 
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(FinopalTransaction::class);
+    }
+
     public function reviews(): HasMany
     {
         return $this->hasMany(GatewaySaleReview::class)->orderBy('id');
