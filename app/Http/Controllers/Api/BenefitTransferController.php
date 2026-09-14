@@ -12,13 +12,16 @@ use Illuminate\Http\Request;
 
 class BenefitTransferController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $this->assertSeniorManager($request->user());
+
         return response()->json(BenefitTransfer::query()->with(['fromUser', 'toUser', 'items'])->latest()->get());
     }
 
     public function store(Request $request, BenefitTransferService $service, PermissionService $permissions)
     {
+        $this->assertSeniorManager($request->user());
         $permissions->authorize($request->user(), 'senior_manager.benefit_transfer.create', $request->attributes->get('active_role'));
 
         $data = $request->validate([
@@ -45,5 +48,12 @@ class BenefitTransferController extends Controller
         return response()->json(
             GatewayRepresentative::query()->with('sale.gateway')->where('user_id', $user->id)->get()
         );
+    }
+
+    private function assertSeniorManager(?User $user): void
+    {
+        if (! $user?->hasRole('senior_manager')) {
+            abort(403, 'فقط مدیر ارشد می‌تواند انتقال مالکیت مزایا را انجام دهد.');
+        }
     }
 }

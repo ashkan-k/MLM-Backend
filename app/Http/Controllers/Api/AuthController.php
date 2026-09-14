@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\UserRole;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Wallet\WalletService;
+use App\Services\Authorization\PermissionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -168,6 +169,7 @@ class AuthController extends Controller
                 'name' => $role->name,
                 'slug' => $role->slug,
             ] : null,
+            'permissions' => app(PermissionService::class)->slugsFor($user, $role),
         ];
     }
 }

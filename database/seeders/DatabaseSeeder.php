@@ -11,6 +11,7 @@ use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Models\UserRole;
+use App\Support\PermissionCatalog;
 use App\Services\Gateway\GatewaySaleService;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Referral\SharedLinkService;
@@ -68,6 +69,8 @@ class DatabaseSeeder extends Seeder
                 }
             }
         }
+
+        PermissionCatalog::sync();
 
         $rules = [
             ['code' => 'senior_manager', 'name' => 'مدیر ارشد', 'percent' => '4.000', 'qualified' => '4.000', 'type' => null],
@@ -139,6 +142,7 @@ class DatabaseSeeder extends Seeder
             'referrer' => ['name' => 'نماینده معرف', 'mobile' => '09124444444', 'roles' => ['representative_referrer', 'representative']],
             'rep' => ['name' => 'نماینده اصلی', 'mobile' => '09125555555', 'roles' => ['representative']],
             'multi' => ['name' => 'کاربر چندنقشی', 'mobile' => '09126666666', 'roles' => ['representative', 'representative_referrer', 'sales_manager', 'development_manager']],
+            'multi_b' => ['name' => 'کاربر چندنقشی ب', 'mobile' => '09120202020', 'roles' => ['representative', 'representative_referrer', 'sales_manager', 'development_manager']],
             'share_a' => ['name' => 'نماینده اشتراکی الف', 'mobile' => '09127777777', 'roles' => ['representative']],
             'share_b' => ['name' => 'نماینده اشتراکی ب', 'mobile' => '09128888888', 'roles' => ['representative']],
             'outsider' => ['name' => 'شاخه جدا', 'mobile' => '09129999999', 'roles' => ['representative']],
@@ -180,6 +184,7 @@ class DatabaseSeeder extends Seeder
         $tree->attach($created['referrer'], $roles['representative'], $salesNode, now()->subMonths(8)->toDateString());
         $tree->attach($created['rep'], $roles['representative'], $salesNode, now()->subMonths(6)->toDateString());
         $tree->attach($created['multi'], $roles['sales_manager'], $devNode, now()->subMonths(10)->toDateString());
+        $tree->attach($created['multi_b'], $roles['sales_manager'], $devNode, now()->subMonths(9)->toDateString());
         $tree->attach($created['share_a'], $roles['representative'], $salesNode, now()->subMonths(3)->toDateString());
         $tree->attach($created['share_b'], $roles['representative'], $salesNode, now()->subMonths(3)->toDateString());
         $tree->attach($created['outsider'], $roles['representative'], $seniorNode, now()->subMonths(2)->toDateString());
@@ -201,8 +206,23 @@ class DatabaseSeeder extends Seeder
         ]);
         $course->roles()->sync($roles->where('is_organizational', true)->pluck('id'));
         $course->levels()->createMany([
-            ['title' => 'آشنایی با محصول', 'sort_order' => 1, 'passing_score' => 70, 'is_active' => true],
-            ['title' => 'مهارت فروش', 'sort_order' => 2, 'passing_score' => 75, 'is_active' => true],
+            [
+                'title' => 'آشنایی با محصول',
+                'sort_order' => 1,
+                'passing_score' => 70,
+                'is_active' => true,
+                'content_type' => 'text',
+                'content_body' => "متن آموزشی نمونه:\nسازمان فروش فاینوپال چگونه کار می‌کند، نقش نماینده چیست و چرا تکمیل مدارک هویتی برای ثبت درگاه لازم است.",
+            ],
+            [
+                'title' => 'مهارت فروش',
+                'sort_order' => 2,
+                'passing_score' => 75,
+                'is_active' => true,
+                'content_type' => 'video',
+                'content_url' => 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+                'content_body' => 'ویدیوی نمونه مهارت فروش. می‌توانید به‌جای لینک، فایل ویدیو یا PDF هم بارگذاری کنید.',
+            ],
         ]);
 
         $link = app(SharedLinkService::class)->create($created['share_a'], 'gateway_sale', [
@@ -227,6 +247,14 @@ class DatabaseSeeder extends Seeder
             'shared_link_id' => $link->id,
             'customer' => ['name' => 'مشتری اشتراکی', 'mobile' => '09121230002'],
             'idempotency_key' => 'seed-share-1',
+        ]);
+        $sales->record([
+            'external_id' => 'GW-MULTI-B-1',
+            'name' => 'درگاه کاربر چندنقشی ب',
+            'amount' => 1800000,
+            'representative_user_id' => $created['multi_b']->id,
+            'customer' => ['name' => 'مشتری انتقال مزایا', 'mobile' => '09121230077'],
+            'idempotency_key' => 'demo-multi-b-gateway-1',
         ]);
 
         $this->call(DemoReviewSeeder::class);

@@ -79,6 +79,15 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/benefit-transfers', [BenefitTransferController::class, 'index']);
         Route::post('/benefit-transfers', [BenefitTransferController::class, 'store']);
         Route::get('/users/{user}/gateway-shares', [BenefitTransferController::class, 'shares']);
+
+        Route::middleware(['course.manager'])->prefix('manage')->group(function () {
+            Route::get('/roles', [SuperuserController::class, 'organizationalRoles']);
+            Route::match(['get', 'post'], '/courses', [SuperuserController::class, 'courses']);
+            Route::post('/courses/bulk', [SuperuserController::class, 'bulkCourses']);
+            Route::put('/courses/{course}', [SuperuserController::class, 'updateCourse']);
+            Route::delete('/courses/{course}', [SuperuserController::class, 'destroyCourse']);
+            Route::post('/course-levels/{level}/file', [SuperuserController::class, 'uploadLevelFile']);
+        });
     });
 
     Route::middleware(['superuser'])->prefix('superuser')->group(function () {

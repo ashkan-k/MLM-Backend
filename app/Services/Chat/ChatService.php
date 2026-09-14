@@ -64,6 +64,7 @@ class ChatService
             'message_type' => $type,
             'attachment' => $attachment,
         ]);
+        $conversation->touch();
 
         $this->broadcast('message.sent', [
             'conversation_id' => $conversation->id,

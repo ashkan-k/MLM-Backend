@@ -2,6 +2,7 @@
 
 namespace App\Services\Promotion;
 
+use App\Models\Course;
 use App\Models\GatewayRepresentative;
 use App\Models\Notification;
 use App\Models\PromotionCriteriaResult;
@@ -10,6 +11,7 @@ use App\Models\RepresentativeReferral;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Models\UserCourseProgress;
 use App\Models\UserRole;
 use App\Services\Audit\AuditService;
 use App\Services\Organization\OrganizationTreeService;
@@ -42,6 +44,7 @@ class PromotionService
                 ['code' => 'personal_points', 'required' => $settings['sm_personal_points'], 'actual' => $points, 'passed' => $points >= $settings['sm_personal_points']],
                 ['code' => 'new_representatives', 'required' => $settings['sm_new_reps'], 'actual' => $referred->count(), 'passed' => $referred->count() >= $settings['sm_new_reps']],
                 ['code' => 'strong_representatives', 'required' => $settings['sm_strong_reps'], 'actual' => $strong, 'passed' => $strong >= $settings['sm_strong_reps']],
+                $this->trainingCriterion($user, 'representative'),
                 ['code' => 'senior_assessment', 'required' => 1, 'actual' => 0, 'passed' => false],
             ];
         }
@@ -70,7 +73,44 @@ class PromotionService
             ['code' => 'strong_reps', 'required' => $settings['dm_strong_reps'], 'actual' => $strong, 'passed' => $strong >= $settings['dm_strong_reps']],
             ['code' => 'team_satisfaction', 'required' => 1, 'actual' => 0, 'passed' => false],
             ['code' => 'eligible_sales_managers', 'required' => $settings['dm_eligible_sms'], 'actual' => $eligible, 'passed' => $eligible >= $settings['dm_eligible_sms']],
+            $this->trainingCriterion($user, 'sales_manager'),
             ['code' => 'senior_assessment', 'required' => 1, 'actual' => 0, 'passed' => false],
+        ];
+    }
+
+    private function trainingCriterion(User $user, string $fromSlug): array
+    {
+        $role = Role::query()->where('slug', $fromSlug)->first();
+        $query = Course::query()
+            ->where('is_active', true)
+            ->where('is_required_for_promotion', true)
+            ->with('levels');
+
+        if ($role) {
+            $query->whereHas('roles', fn ($q) => $q->where('roles.id', $role->id));
+        }
+
+        $courses = $query->get();
+        $required = $courses->sum(fn (Course $course) => $course->levels->count());
+        if ($required === 0) {
+            return ['code' => 'required_training', 'required' => 0, 'actual' => 0, 'passed' => true];
+        }
+
+        $done = 0;
+        foreach ($courses as $course) {
+            $done += UserCourseProgress::query()
+                ->where('user_id', $user->id)
+                ->where('course_id', $course->id)
+                ->where('status', 'completed')
+                ->whereIn('course_level_id', $course->levels->pluck('id'))
+                ->count();
+        }
+
+        return [
+            'code' => 'required_training',
+            'required' => $required,
+            'actual' => $done,
+            'passed' => $done >= $required,
         ];
     }
 

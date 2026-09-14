@@ -9,6 +9,7 @@ use App\Services\Chat\ChatAuthorizationService;
 use App\Services\Chat\ChatService;
 use App\Services\Organization\OrganizationTreeService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ChatController extends Controller
 {
@@ -39,7 +40,9 @@ class ChatController extends Controller
         $items = Conversation::query()
             ->with(['participants:id,name', 'messages' => fn ($q) => $q->latest()->limit(1)])
             ->whereHas('participantRows', fn ($q) => $q->where('user_id', $user->id))
-            ->latest()
+            ->withMax('messages', 'created_at')
+            ->orderByDesc('messages_max_created_at')
+            ->orderByDesc('id')
             ->get();
 
         return response()->json([
@@ -75,12 +78,35 @@ class ChatController extends Controller
     public function send(Request $request, Conversation $conversation, ChatService $chat)
     {
         $data = $request->validate([
-            'body' => ['required', 'string'],
+            'body' => ['nullable', 'string'],
             'message_type' => ['nullable', 'string'],
+            'file' => ['nullable', 'file', 'max:10240', 'mimes:jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,zip,rar,mp3,mp4,webm,aac,ogg'],
         ]);
 
+        if (blank($data['body'] ?? null) && ! $request->hasFile('file')) {
+            abort(422, 'متن پیام یا فایل پیوست الزامی است.');
+        }
+
+        $attachment = null;
+        $type = $data['message_type'] ?? 'text';
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $path = $file->store('chat/'.$conversation->id, 'public');
+            $mime = (string) $file->getMimeType();
+            $attachment = [
+                'path' => $path,
+                'url' => Storage::disk('public')->url($path),
+                'name' => $file->getClientOriginalName(),
+                'mime' => $mime,
+                'size' => $file->getSize(),
+            ];
+            $type = str_starts_with($mime, 'image/') ? 'image' : 'file';
+        }
+
+        $body = trim((string) ($data['body'] ?? '')) ?: (string) ($attachment['name'] ?? '');
+
         return response()->json(
-            $chat->send($request->user(), $conversation, $data['body'], $data['message_type'] ?? 'text'),
+            $chat->send($request->user(), $conversation, $body, $type, $attachment),
             201
         );
     }

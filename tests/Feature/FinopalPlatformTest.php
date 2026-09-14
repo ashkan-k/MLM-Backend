@@ -16,6 +16,8 @@ use App\Services\Promotion\PromotionService;
 use App\Services\Wallet\WalletService;
 use App\Services\Withdrawal\WithdrawalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class FinopalPlatformTest extends TestCase
@@ -558,5 +560,103 @@ class FinopalPlatformTest extends TestCase
             'national_id' => '0012345678',
             'sheba' => 'IR120170000000123456789001',
         ]);
+    }
+
+    public function test_only_senior_manager_can_list_or_create_benefit_transfers(): void
+    {
+        $rep = $this->postJson('/api/auth/login', [
+            'mobile' => '09125555555',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->json('token');
+
+        $this->withToken($rep)->getJson('/api/benefit-transfers')->assertForbidden();
+
+        $senior = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ])->json('token');
+
+        $this->withToken($senior)->getJson('/api/benefit-transfers')->assertOk();
+    }
+
+    public function test_senior_and_superuser_can_manage_courses_with_mixed_content(): void
+    {
+        $roleId = Role::query()->where('slug', 'representative')->value('id');
+        $senior = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ])->json('token');
+
+        $course = $this->withToken($senior)->postJson('/api/manage/courses', [
+            'title' => 'دوره مدیر ارشد',
+            'is_required_for_promotion' => true,
+            'role_ids' => [$roleId],
+            'levels' => [[
+                'title' => 'ویدیو و متن',
+                'sort_order' => 1,
+                'passing_score' => 70,
+                'content_type' => 'video',
+                'content_url' => 'https://example.com/lesson.mp4',
+                'content_body' => 'شرح متنی کنار ویدیو',
+            ]],
+        ])->assertCreated()->json();
+
+        $this->assertSame('video', $course['levels'][0]['content_type']);
+
+        $sales = $this->postJson('/api/auth/login', [
+            'mobile' => '09123333333',
+            'password' => 'Password123!',
+            'role_slug' => 'sales_manager',
+        ])->json('token');
+        $this->withToken($sales)->getJson('/api/manage/courses')->assertForbidden();
+    }
+
+    public function test_required_training_blocks_promotion_eligibility(): void
+    {
+        $outsider = User::query()->where('mobile', '09129999999')->firstOrFail();
+        $eval = app(PromotionService::class)->evaluate($outsider, 'sales_manager');
+        $training = collect($eval)->firstWhere('code', 'required_training');
+        $this->assertNotEmpty($training);
+        $this->assertFalse($training['passed']);
+    }
+
+    public function test_chat_accepts_common_file_attachments(): void
+    {
+        Storage::fake('public');
+        $senior = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ]);
+        $dev = User::query()->where('mobile', '09122222222')->firstOrFail();
+        $conv = $this->withToken($senior->json('token'))
+            ->postJson('/api/conversations', ['participant_ids' => [$dev->id]])
+            ->assertCreated()
+            ->json('id');
+
+        $this->withToken($senior->json('token'))
+            ->post('/api/conversations/'.$conv.'/messages', [
+                'body' => 'فایل پیوست',
+                'file' => UploadedFile::fake()->create('guide.pdf', 120, 'application/pdf'),
+            ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('message_type', 'file');
+    }
+
+    public function test_login_payload_includes_page_permissions(): void
+    {
+        $login = $this->postJson('/api/auth/login', [
+            'mobile' => '09123333333',
+            'password' => 'Password123!',
+            'role_slug' => 'sales_manager',
+        ])->assertOk();
+
+        $perms = $login->json('user.permissions');
+        $this->assertContains('page.dashboard', $perms);
+        $this->assertNotContains('page.transfers', $perms);
+        $this->assertNotContains('page.courses_manage', $perms);
     }
 }

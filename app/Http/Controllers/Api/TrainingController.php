@@ -41,6 +41,11 @@ class TrainingController extends Controller
                         'title' => $level->title,
                         'sort_order' => $level->sort_order,
                         'passing_score' => $level->passing_score,
+                        'content_type' => $level->content_type ?? 'text',
+                        'content_body' => $level->content_body,
+                        'content_url' => $level->content_url,
+                        'attachment_name' => $level->attachment_name,
+                        'attachment_url' => $level->attachment_url,
                         'progress' => $row ? [
                             'status' => $row->status,
                             'score' => $row->score,

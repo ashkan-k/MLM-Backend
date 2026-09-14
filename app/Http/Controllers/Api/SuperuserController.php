@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Commission;
 use App\Models\CommissionRule;
 use App\Models\Course;
+use App\Models\CourseLevel;
 use App\Models\FraSoftSyncLog;
 use App\Models\GatewaySale;
 use App\Models\OrganizationNode;
@@ -262,12 +263,17 @@ class SuperuserController extends Controller
 
     public function roles()
     {
-        return response()->json(Role::query()->with('permissions')->get());
+        return response()->json(Role::query()->with('permissions')->orderBy('hierarchy_level')->get());
+    }
+
+    public function organizationalRoles()
+    {
+        return response()->json(Role::query()->where('is_organizational', true)->orderBy('hierarchy_level')->get());
     }
 
     public function permissions()
     {
-        return response()->json(Permission::query()->get());
+        return response()->json(Permission::query()->orderBy('panel')->orderBy('slug')->get());
     }
 
     public function assignPermission(Request $request, AuditService $audit)
@@ -395,13 +401,8 @@ class SuperuserController extends Controller
             'is_required_for_promotion' => $data['is_required_for_promotion'] ?? false,
         ]);
         $course->roles()->sync($data['role_ids'] ?? []);
-        foreach ($data['levels'] ?? [] as $level) {
-            $course->levels()->create([
-                'title' => $level['title'],
-                'sort_order' => $level['sort_order'],
-                'passing_score' => $level['passing_score'],
-                'is_active' => true,
-            ]);
+        foreach ($data['levels'] ?? [] as $index => $level) {
+            $course->levels()->create($this->levelPayload($level, $index));
         }
 
         return response()->json($course->load(['levels', 'roles']), 201);
@@ -421,12 +422,7 @@ class SuperuserController extends Controller
 
         $keep = [];
         foreach ($data['levels'] ?? [] as $index => $level) {
-            $payload = [
-                'title' => $level['title'],
-                'sort_order' => $level['sort_order'] ?? ($index + 1),
-                'passing_score' => $level['passing_score'],
-                'is_active' => true,
-            ];
+            $payload = $this->levelPayload($level, $index);
             if (! empty($level['id'])) {
                 $row = $course->levels()->where('id', $level['id'])->first();
                 if ($row) {
@@ -468,6 +464,28 @@ class SuperuserController extends Controller
         }
 
         return response()->json(['ok' => true, 'count' => $done]);
+    }
+
+    public function uploadLevelFile(Request $request, CourseLevel $level)
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'max:20480', 'mimes:jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,zip,mp4,webm,mp3'],
+        ]);
+
+        $file = $request->file('file');
+        if ($level->attachment_path) {
+            Storage::disk('public')->delete($level->attachment_path);
+        }
+        $path = $file->store('course-content/'.$level->course_id, 'public');
+        $mime = (string) $file->getMimeType();
+        $type = str_starts_with($mime, 'video/') ? 'video' : (str_contains($mime, 'pdf') ? 'pdf' : 'file');
+        $level->update([
+            'attachment_path' => $path,
+            'attachment_name' => $file->getClientOriginalName(),
+            'content_type' => in_array($level->content_type, ['text', 'html'], true) ? $type : $level->content_type,
+        ]);
+
+        return response()->json($level->fresh());
     }
 
     public function audits(Request $request)
@@ -575,7 +593,23 @@ class SuperuserController extends Controller
             'levels.*.title' => ['required', 'string'],
             'levels.*.sort_order' => ['nullable', 'integer'],
             'levels.*.passing_score' => ['required', 'numeric', 'min:0', 'max:100'],
+            'levels.*.content_type' => ['nullable', 'in:text,html,video,pdf,file'],
+            'levels.*.content_body' => ['nullable', 'string'],
+            'levels.*.content_url' => ['nullable', 'string'],
         ]);
+    }
+
+    private function levelPayload(array $level, int $index): array
+    {
+        return [
+            'title' => $level['title'],
+            'sort_order' => $level['sort_order'] ?? ($index + 1),
+            'passing_score' => $level['passing_score'],
+            'content_type' => $level['content_type'] ?? 'text',
+            'content_body' => $level['content_body'] ?? null,
+            'content_url' => $level['content_url'] ?? null,
+            'is_active' => true,
+        ];
     }
 
     private function settingsSchema(): array

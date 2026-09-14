@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\AuthenticateApiToken;
 use App\Http\Middleware\EnsureActiveRole;
+use App\Http\Middleware\EnsureCourseManager;
 use App\Http\Middleware\EnsureSuperuser;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -21,10 +22,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'auth.api' => AuthenticateApiToken::class,
             'active.role' => EnsureActiveRole::class,
             'superuser' => EnsureSuperuser::class,
+            'course.manager' => EnsureCourseManager::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (RuntimeException $e, $request) {
+            if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface) {
+                return null;
+            }
             if ($request->expectsJson() || $request->is('api/*')) {
                 return response()->json(['message' => $e->getMessage()], 422);
             }

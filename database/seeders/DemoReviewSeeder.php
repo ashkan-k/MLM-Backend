@@ -4,19 +4,27 @@ namespace Database\Seeders;
 
 use App\Models\Course;
 use App\Models\Notification;
+use App\Models\OrganizationNode;
 use App\Models\PromotionRequest;
+use App\Models\ReferralCode;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\UserCourseProgress;
+use App\Models\UserRole;
+use App\Services\Gateway\GatewaySaleService;
+use App\Services\Organization\OrganizationTreeService;
 use App\Services\Promotion\PromotionService;
 use App\Services\Wallet\WalletService;
 use App\Support\Money;
+use App\Support\PermissionCatalog;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 
 class DemoReviewSeeder extends Seeder
 {
     public function run(): void
     {
+        PermissionCatalog::sync();
         Role::query()->where('slug', 'superuser')->update(['name' => 'مدیر سامانه']);
         User::query()->where('mobile', '09120000000')->update(['name' => 'مدیر سامانه']);
 
@@ -33,6 +41,7 @@ class DemoReviewSeeder extends Seeder
         }
 
         $walletService = app(WalletService::class);
+        $this->ensureMultiRoleTransferUser($dev, $walletService);
         foreach ($senior->roles as $role) {
             if ($role->slug === 'superuser') {
                 continue;
@@ -111,6 +120,22 @@ class DemoReviewSeeder extends Seeder
         $dev = $dev ?? User::query()->where('mobile', '09122222222')->first();
         $shareB = $shareB ?? User::query()->where('mobile', '09128888888')->first();
         $courses = Course::query()->with('levels')->where('is_active', true)->get();
+        foreach ($courses as $course) {
+            foreach ($course->levels as $index => $level) {
+                if ($level->content_body || $level->content_url) {
+                    continue;
+                }
+                $level->update($index === 0
+                    ? [
+                        'content_type' => 'text',
+                        'content_body' => 'متن آموزشی نمونه برای سطح آشنایی با محصول. این محتوا برای تست پنل آموزش است.',
+                    ]
+                    : [
+                        'content_type' => 'pdf',
+                        'content_body' => 'برای این سطح می‌توانید PDF، ویدیو یا فایل آموزشی بارگذاری کنید.',
+                    ]);
+            }
+        }
         foreach ([$rep, $sales, $shareA, $referrer, $dev, $shareB] as $index => $user) {
             if (! $user) {
                 continue;
@@ -133,5 +158,71 @@ class DemoReviewSeeder extends Seeder
                 }
             }
         }
+    }
+
+    private function ensureMultiRoleTransferUser(?User $dev, WalletService $wallets): void
+    {
+        $roles = Role::query()->whereIn('slug', [
+            'representative',
+            'representative_referrer',
+            'sales_manager',
+            'development_manager',
+        ])->get()->keyBy('slug');
+        if ($roles->count() < 4) {
+            return;
+        }
+
+        $user = User::query()->firstOrCreate(
+            ['mobile' => '09120202020'],
+            [
+                'name' => 'کاربر چندنقشی ب',
+                'email' => 'multi_b@finopal.test',
+                'password' => Hash::make('Password123!'),
+                'is_active' => true,
+            ]
+        );
+
+        foreach ($roles as $role) {
+            UserRole::query()->updateOrCreate(
+                ['user_id' => $user->id, 'role_id' => $role->id],
+                [
+                    'effective_from' => now()->subYear()->toDateString(),
+                    'is_primary' => $role->slug === 'representative',
+                    'is_active' => true,
+                    'effective_to' => null,
+                ]
+            );
+            $wallets->walletFor($user, $role);
+        }
+
+        ReferralCode::query()->firstOrCreate(
+            ['user_id' => $user->id, 'code' => 'MULTIBREF'],
+            ['source' => 'finopal', 'is_active' => true]
+        );
+
+        $parent = $dev
+            ? OrganizationNode::query()->where('user_id', $dev->id)->where('is_active', true)->first()
+            : null;
+        $hasNode = OrganizationNode::query()
+            ->where('user_id', $user->id)
+            ->where('is_active', true)
+            ->exists();
+        if (! $hasNode && $roles->has('sales_manager')) {
+            app(OrganizationTreeService::class)->attach(
+                $user,
+                $roles['sales_manager'],
+                $parent,
+                now()->subMonths(9)->toDateString()
+            );
+        }
+
+        app(GatewaySaleService::class)->record([
+            'external_id' => 'GW-MULTI-B-1',
+            'name' => 'درگاه کاربر چندنقشی ب',
+            'amount' => 1800000,
+            'representative_user_id' => $user->id,
+            'customer' => ['name' => 'مشتری انتقال مزایا', 'mobile' => '09121230077'],
+            'idempotency_key' => 'demo-multi-b-gateway-1',
+        ]);
     }
 }
