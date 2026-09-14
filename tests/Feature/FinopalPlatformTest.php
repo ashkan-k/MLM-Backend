@@ -330,6 +330,12 @@ class FinopalPlatformTest extends TestCase
         $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
         $transfer = app(BenefitTransferService::class)->transferAll($senior, $from, $to, 'succession');
         $this->assertSame('all_future_benefits', $transfer->transfer_type);
+        $this->assertFalse((bool) $from->fresh()->is_active);
+        $this->postJson('/api/auth/login', [
+            'mobile' => '09125555555',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->assertStatus(422)->assertJsonPath('errors.mobile.0', 'حساب شما مسدود است.');
     }
 
     public function test_frasoft_sync_is_idempotent(): void
@@ -658,5 +664,57 @@ class FinopalPlatformTest extends TestCase
         $this->assertContains('page.dashboard', $perms);
         $this->assertNotContains('page.transfers', $perms);
         $this->assertNotContains('page.courses_manage', $perms);
+    }
+
+    public function test_senior_can_block_downline_but_not_outsiders(): void
+    {
+        $senior = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ])->json('token');
+
+        $rep = User::query()->where('mobile', '09125555555')->firstOrFail();
+        $this->withToken($senior)->postJson('/api/users/'.$rep->id.'/block', ['reason' => 'تست مسدودسازی'])
+            ->assertOk()
+            ->assertJsonPath('is_active', false);
+
+        $this->postJson('/api/auth/login', [
+            'mobile' => '09125555555',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->assertStatus(422)->assertJsonPath('errors.mobile.0', 'حساب شما مسدود است.');
+
+        $this->withToken($senior)->postJson('/api/users/'.$rep->id.'/unblock')
+            ->assertOk()
+            ->assertJsonPath('is_active', true);
+
+        $stranger = User::factory()->create(['is_active' => true]);
+        $this->withToken($senior)->postJson('/api/users/'.$stranger->id.'/block')->assertForbidden();
+
+        $sales = $this->postJson('/api/auth/login', [
+            'mobile' => '09123333333',
+            'password' => 'Password123!',
+            'role_slug' => 'sales_manager',
+        ])->json('token');
+        $this->withToken($sales)->postJson('/api/users/'.$rep->id.'/block')->assertForbidden();
+    }
+
+    public function test_superuser_can_block_any_user_except_self(): void
+    {
+        $login = $this->postJson('/api/auth/login', [
+            'mobile' => '09120000000',
+            'password' => 'Password123!',
+            'role_slug' => 'superuser',
+        ]);
+        $token = $login->json('token');
+        $super = User::query()->where('mobile', '09120000000')->firstOrFail();
+        $stranger = User::factory()->create(['is_active' => true]);
+
+        $this->withToken($token)->postJson('/api/users/'.$stranger->id.'/block')
+            ->assertOk()
+            ->assertJsonPath('is_active', false);
+
+        $this->withToken($token)->postJson('/api/users/'.$super->id.'/block')->assertForbidden();
     }
 }

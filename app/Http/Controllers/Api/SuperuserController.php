@@ -23,11 +23,13 @@ use App\Services\Integration\FraSoft\FraSoftSyncService;
 use App\Services\Integration\FraSoft\FraSoftWebhookHandler;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Report\SuperuserReportService;
+use App\Services\User\UserBlockService;
 use App\Services\Wallet\WalletService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class SuperuserController extends Controller
 {
@@ -119,7 +121,7 @@ class SuperuserController extends Controller
         return response()->json($query->paginate($perPage));
     }
 
-    public function bulkUsers(Request $request, AuditService $audit)
+    public function bulkUsers(Request $request, AuditService $audit, UserBlockService $blocks)
     {
         $data = $request->validate([
             'action' => ['required', 'in:delete,activate,deactivate'],
@@ -140,10 +142,16 @@ class SuperuserController extends Controller
                 continue;
             }
 
-            $old = $user->only(['name', 'mobile', 'email', 'is_active']);
-            $user->update(['is_active' => $data['action'] === 'activate']);
-            $audit->record($request->user(), 'user.updated', $user, $old, $user->only(['name', 'mobile', 'email', 'is_active']));
-            $done++;
+            try {
+                if ($data['action'] === 'deactivate') {
+                    $blocks->block($request->user(), $user, 'غیرفعال‌سازی دسته‌ای');
+                } else {
+                    $blocks->unblock($request->user(), $user);
+                }
+                $done++;
+            } catch (HttpExceptionInterface) {
+                continue;
+            }
         }
 
         return response()->json(['ok' => true, 'count' => $done]);
@@ -176,7 +184,7 @@ class SuperuserController extends Controller
         return response()->json($user->load('roles'), 201);
     }
 
-    public function updateUser(Request $request, User $user, WalletService $wallets, OrganizationTreeService $tree, AuditService $audit)
+    public function updateUser(Request $request, User $user, WalletService $wallets, OrganizationTreeService $tree, AuditService $audit, UserBlockService $blocks)
     {
         $data = $request->validate([
             'name' => ['required', 'string'],
@@ -189,11 +197,11 @@ class SuperuserController extends Controller
         ]);
 
         $old = $user->only(['name', 'mobile', 'email', 'is_active']);
+        $wantActive = array_key_exists('is_active', $data) ? (bool) $data['is_active'] : (bool) $user->is_active;
         $user->fill([
             'name' => $data['name'],
             'mobile' => $data['mobile'],
             'email' => filled($data['email'] ?? null) ? $data['email'] : null,
-            'is_active' => $data['is_active'] ?? $user->is_active,
         ]);
         if (! empty($data['password'])) {
             $user->password = $data['password'];
@@ -205,7 +213,13 @@ class SuperuserController extends Controller
             $this->syncRoles($user, $data['role_slugs'], $wallets, $tree);
         }
 
-        $audit->record($request->user(), 'user.updated', $user, $old, $user->only(['name', 'mobile', 'email', 'is_active']));
+        if ($user->is_active && ! $wantActive) {
+            $blocks->block($request->user(), $user, 'غیرفعال‌سازی از ویرایش کاربر');
+        } elseif (! $user->is_active && $wantActive) {
+            $blocks->unblock($request->user(), $user);
+        }
+
+        $audit->record($request->user(), 'user.updated', $user, $old, $user->fresh()->only(['name', 'mobile', 'email', 'is_active']));
 
         return response()->json($user->fresh('roles'));
     }

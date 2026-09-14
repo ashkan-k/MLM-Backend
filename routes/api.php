@@ -79,6 +79,8 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/benefit-transfers', [BenefitTransferController::class, 'index']);
         Route::post('/benefit-transfers', [BenefitTransferController::class, 'store']);
         Route::get('/users/{user}/gateway-shares', [BenefitTransferController::class, 'shares']);
+        Route::post('/users/{user}/block', [OrganizationController::class, 'block']);
+        Route::post('/users/{user}/unblock', [OrganizationController::class, 'unblock']);
 
         Route::middleware(['course.manager'])->prefix('manage')->group(function () {
             Route::get('/roles', [SuperuserController::class, 'organizationalRoles']);

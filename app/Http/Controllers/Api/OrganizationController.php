@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Organization\OrganizationTreeService;
+use App\Services\User\UserBlockService;
 use Illuminate\Http\Request;
 
 class OrganizationController extends Controller
@@ -28,6 +29,7 @@ class OrganizationController extends Controller
                 'id' => $u->id,
                 'name' => $u->name,
                 'mobile' => $u->mobile,
+                'is_active' => (bool) $u->is_active,
                 'roles' => $u->roles()->pluck('name'),
             ])
         );
@@ -70,5 +72,17 @@ class OrganizationController extends Controller
                 'roles' => $u->roles->map(fn ($r) => ['id' => $r->id, 'name' => $r->name, 'slug' => $r->slug]),
             ])
         );
+    }
+
+    public function block(Request $request, User $user, UserBlockService $blocks)
+    {
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:500']]);
+
+        return response()->json($blocks->block($request->user(), $user, $data['reason'] ?? ''));
+    }
+
+    public function unblock(Request $request, User $user, UserBlockService $blocks)
+    {
+        return response()->json($blocks->unblock($request->user(), $user));
     }
 }

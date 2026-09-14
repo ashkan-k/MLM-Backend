@@ -41,7 +41,7 @@ class DemoReviewSeeder extends Seeder
         }
 
         $walletService = app(WalletService::class);
-        $this->ensureMultiRoleTransferUser($dev, $walletService);
+        $multiB = $this->ensureMultiRoleTransferUser($dev, $walletService);
         foreach ($senior->roles as $role) {
             if ($role->slug === 'superuser') {
                 continue;
@@ -136,7 +136,7 @@ class DemoReviewSeeder extends Seeder
                     ]);
             }
         }
-        foreach ([$rep, $sales, $shareA, $referrer, $dev, $shareB] as $index => $user) {
+        foreach ([$rep, $sales, $shareA, $referrer, $dev, $shareB, $multiB] as $index => $user) {
             if (! $user) {
                 continue;
             }
@@ -160,8 +160,52 @@ class DemoReviewSeeder extends Seeder
         }
     }
 
-    private function ensureMultiRoleTransferUser(?User $dev, WalletService $wallets): void
+    private function ensureMultiRoleTransferUser(?User $dev, WalletService $wallets): ?User
     {
+        $user = $this->ensureTransferSourceUser(
+            $dev,
+            $wallets,
+            '09120202020',
+            'کاربر چندنقشی ب',
+            'multi_b@finopal.test',
+            'MULTIBREF',
+            9
+        );
+        if (! $user) {
+            return null;
+        }
+
+        if (! $user->is_active) {
+            $spare = $this->ensureTransferSourceUser(
+                $dev,
+                $wallets,
+                '09120303030',
+                'کاربر چندنقشی ج',
+                'multi_c@finopal.test',
+                'MULTICREF',
+                8
+            );
+            if ($spare?->is_active) {
+                $this->seedTransferSourceActivity($spare, $wallets, 'multi-c');
+            }
+
+            return $user;
+        }
+
+        $this->seedTransferSourceActivity($user, $wallets, 'multi-b');
+
+        return $user;
+    }
+
+    private function ensureTransferSourceUser(
+        ?User $dev,
+        WalletService $wallets,
+        string $mobile,
+        string $name,
+        string $email,
+        string $referralCode,
+        int $monthsAgo,
+    ): ?User {
         $roles = Role::query()->whereIn('slug', [
             'representative',
             'representative_referrer',
@@ -169,18 +213,22 @@ class DemoReviewSeeder extends Seeder
             'development_manager',
         ])->get()->keyBy('slug');
         if ($roles->count() < 4) {
-            return;
+            return null;
         }
 
         $user = User::query()->firstOrCreate(
-            ['mobile' => '09120202020'],
+            ['mobile' => $mobile],
             [
-                'name' => 'کاربر چندنقشی ب',
-                'email' => 'multi_b@finopal.test',
+                'name' => $name,
+                'email' => $email,
                 'password' => Hash::make('Password123!'),
                 'is_active' => true,
             ]
         );
+
+        if (! $user->is_active) {
+            return $user;
+        }
 
         foreach ($roles as $role) {
             UserRole::query()->updateOrCreate(
@@ -196,7 +244,7 @@ class DemoReviewSeeder extends Seeder
         }
 
         ReferralCode::query()->firstOrCreate(
-            ['user_id' => $user->id, 'code' => 'MULTIBREF'],
+            ['user_id' => $user->id, 'code' => $referralCode],
             ['source' => 'finopal', 'is_active' => true]
         );
 
@@ -212,17 +260,71 @@ class DemoReviewSeeder extends Seeder
                 $user,
                 $roles['sales_manager'],
                 $parent,
-                now()->subMonths(9)->toDateString()
+                now()->subMonths($monthsAgo)->toDateString()
             );
         }
 
-        app(GatewaySaleService::class)->record([
-            'external_id' => 'GW-MULTI-B-1',
+        return $user;
+    }
+
+    private function seedTransferSourceActivity(User $user, WalletService $wallets, string $prefix): void
+    {
+        $sales = app(GatewaySaleService::class);
+        $sales->record([
+            'external_id' => 'GW-'.strtoupper($prefix).'-1',
             'name' => 'درگاه کاربر چندنقشی ب',
             'amount' => 1800000,
             'representative_user_id' => $user->id,
             'customer' => ['name' => 'مشتری انتقال مزایا', 'mobile' => '09121230077'],
-            'idempotency_key' => 'demo-multi-b-gateway-1',
+            'idempotency_key' => 'demo-'.$prefix.'-gateway-1',
         ]);
+        $sales->record([
+            'external_id' => 'GW-'.strtoupper($prefix).'-2',
+            'name' => 'درگاه فروشگاهی ب',
+            'amount' => 2450000,
+            'representative_user_id' => $user->id,
+            'customer' => ['name' => 'فروشگاه نمونه انتقال', 'mobile' => '09121230078'],
+            'idempotency_key' => 'demo-'.$prefix.'-gateway-2',
+        ]);
+        $sales->record([
+            'external_id' => 'GW-'.strtoupper($prefix).'-3',
+            'name' => 'درگاه خدماتی ب',
+            'amount' => 980000,
+            'representative_user_id' => $user->id,
+            'customer' => ['name' => 'مشتری خدماتی انتقال', 'mobile' => '09121230079'],
+            'idempotency_key' => 'demo-'.$prefix.'-gateway-3',
+        ]);
+
+        foreach ($user->fresh()->roles as $role) {
+            if (! in_array($role->slug, ['representative', 'sales_manager', 'development_manager'], true)) {
+                continue;
+            }
+            $wallet = $wallets->walletFor($user, $role);
+            $amount = match ($role->slug) {
+                'representative' => '750000.000',
+                'sales_manager' => '1250000.000',
+                default => '320000.000',
+            };
+            if (Money::cmp($wallet->availableBalance(), $amount) < 0) {
+                $wallets->credit(
+                    $wallet,
+                    $amount,
+                    'adjustment',
+                    'demo-'.$prefix.'-wallet-'.$role->slug
+                );
+            }
+        }
+
+        Notification::query()->firstOrCreate(
+            [
+                'user_id' => $user->id,
+                'title' => 'موجودی و پورسانت آماده انتقال',
+            ],
+            [
+                'type' => 'system.info',
+                'body' => 'برای این حساب پورسانت درگاه، موجودی کیف پول و فعالیت ثبت شده تا انتقال مزایا قابل مشاهده باشد.',
+                'data' => ['demo' => true, 'path' => 'wallet'],
+            ]
+        );
     }
 }

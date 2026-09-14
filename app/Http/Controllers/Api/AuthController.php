@@ -26,8 +26,11 @@ class AuthController extends Controller
         ]);
 
         $user = User::query()->where('mobile', $data['mobile'])->first();
-        if (! $user || ! Hash::check($data['password'], $user->password) || ! $user->is_active) {
+        if (! $user || ! Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages(['mobile' => ['اطلاعات ورود صحیح نیست.']]);
+        }
+        if (! $user->is_active) {
+            throw ValidationException::withMessages(['mobile' => ['حساب شما مسدود است.']]);
         }
 
         $role = null;

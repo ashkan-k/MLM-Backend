@@ -111,7 +111,7 @@ class OrganizationTreeService
     public function tree(?int $rootId = null): array
     {
         $nodes = OrganizationNode::query()
-            ->with(['user:id,name,mobile', 'role:id,name,slug'])
+            ->with(['user:id,name,mobile,is_active', 'role:id,name,slug'])
             ->where('is_active', true)
             ->orderBy('id')
             ->get();
