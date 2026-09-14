@@ -23,6 +23,7 @@ class GatewaySaleService
         private readonly CommissionEngine $engine,
         private readonly SharedLinkService $sharedLinks,
         private readonly CommissionDistributor $distributor,
+        private readonly GatewayReviewService $reviews,
     ) {}
 
     public function record(array $payload): GatewaySale
@@ -80,13 +81,17 @@ class GatewaySaleService
                 ]
             );
 
+            $status = $payload['status'] ?? (
+                ($payload['source'] ?? 'finopal') === 'frasoft' ? 'successful' : 'pending_inspection'
+            );
+
             $sale = GatewaySale::query()->create([
                 'gateway_id' => $gateway->id,
                 'customer_id' => $customer?->id,
                 'shared_link_id' => $payload['shared_link_id'] ?? null,
                 'amount' => $payload['amount'],
                 'full_sales_points' => config('finopal.full_sale_points'),
-                'status' => 'successful',
+                'status' => $status,
                 'sold_at' => $payload['sold_at'] ?? now(),
                 'idempotency_key' => $key ?: 'sale-'.Str::uuid(),
             ]);
@@ -114,9 +119,17 @@ class GatewaySaleService
                 $this->sharedLinks->consume(SharedLink::query()->findOrFail($payload['shared_link_id']));
             }
 
-            $this->engine->process($sale->fresh(['representatives', 'referrers', 'managers.role']));
+            $sale = $sale->fresh(['gateway', 'representatives.user', 'referrers.user', 'managers.user', 'managers.role']);
+            $this->reviews->addReview($sale, null, 'submitted', 'submitted');
 
-            return $sale->fresh(['gateway', 'representatives.user', 'referrers.user', 'managers.user', 'commissions']);
+            if ($status === 'successful') {
+                $this->engine->process($sale);
+                $this->reviews->addReview($sale, null, 'commission_posted', 'approved', 'فروش از قبل تاییدشده؛ پورسانت ثبت شد.');
+            } else {
+                $this->reviews->notifySubmitted($sale);
+            }
+
+            return $sale->fresh(['gateway', 'customer', 'representatives.user', 'referrers.user', 'managers.user', 'reviews.actor', 'commissions']);
         });
     }
 

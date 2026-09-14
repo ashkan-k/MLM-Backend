@@ -40,6 +40,9 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/gateways', [GatewayController::class, 'index']);
         Route::get('/gateway-sales', [GatewayController::class, 'sales']);
         Route::post('/gateway-sales', [GatewayController::class, 'store']);
+        Route::get('/gateway-sales/{sale}', [GatewayController::class, 'show']);
+        Route::post('/gateway-sales/{sale}/inspect', [GatewayController::class, 'inspect']);
+        Route::post('/gateway-sales/{sale}/shaparak', [GatewayController::class, 'shaparak']);
         Route::get('/commissions', [GatewayController::class, 'commissions']);
 
         Route::get('/referrals/codes', [ReferralController::class, 'codes']);

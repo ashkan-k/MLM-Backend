@@ -123,6 +123,7 @@ class FinopalPlatformTest extends TestCase
             'amount' => 500000,
             'representative_user_id' => $rep->id,
             'idempotency_key' => 'idem-sale-1',
+            'status' => 'successful',
         ]);
         $second = $service->record([
             'external_id' => 'GW-IDEM-1',
@@ -130,6 +131,7 @@ class FinopalPlatformTest extends TestCase
             'amount' => 500000,
             'representative_user_id' => $rep->id,
             'idempotency_key' => 'idem-sale-1',
+            'status' => 'successful',
         ]);
 
         $this->assertSame($first->id, $second->id);
@@ -547,7 +549,7 @@ class FinopalPlatformTest extends TestCase
             'role_slug' => 'representative',
         ])->json('token');
 
-        $this->withToken($token)->postJson('/api/gateway-sales', [
+        $created = $this->withToken($token)->postJson('/api/gateway-sales', [
             'external_id' => 'GW-KYC-1',
             'name' => 'فروشگاه تست',
             'amount' => 1500000,
@@ -560,12 +562,71 @@ class FinopalPlatformTest extends TestCase
                 'province' => 'تهران',
                 'city' => 'تهران',
             ],
-        ])->assertCreated()->assertJsonPath('customer.national_id', '0012345678');
+        ])->assertCreated()->assertJsonPath('customer.national_id', '0012345678')
+            ->assertJsonPath('status', 'pending_inspection');
 
         $this->assertDatabaseHas('customers', [
             'national_id' => '0012345678',
             'sheba' => 'IR120170000000123456789001',
         ]);
+        $this->assertSame(0, Commission::query()->where('gateway_sale_id', $created->json('id'))->count());
+    }
+
+    public function test_gateway_commission_waits_for_inspection_and_shaparak(): void
+    {
+        $repToken = $this->postJson('/api/auth/login', [
+            'mobile' => '09125555555',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->json('token');
+
+        $saleId = $this->withToken($repToken)->postJson('/api/gateway-sales', [
+            'external_id' => 'GW-REVIEW-1',
+            'name' => 'فروشگاه بازرسی',
+            'amount' => 1600000,
+            'customer' => [
+                'name' => 'مریم کاظمی',
+                'mobile' => '09121230019',
+                'national_id' => '0012345619',
+                'sheba' => 'IR120170000000123456789019',
+                'province' => 'قزوین',
+                'city' => 'قزوین',
+                'birth_place' => 'قزوین — قزوین',
+            ],
+        ])->assertCreated()->json('id');
+
+        $this->assertSame(0, Commission::query()->where('gateway_sale_id', $saleId)->count());
+
+        $this->withToken($repToken)->postJson("/api/gateway-sales/{$saleId}/inspect", [
+            'decision' => 'approved',
+        ])->assertForbidden();
+
+        $seniorToken = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ])->json('token');
+
+        $this->withToken($seniorToken)->postJson("/api/gateway-sales/{$saleId}/inspect", [
+            'decision' => 'approved',
+            'note' => 'مدارک کامل است',
+        ])->assertOk()->assertJsonPath('status', 'pending_shaparak');
+
+        $this->assertSame(0, Commission::query()->where('gateway_sale_id', $saleId)->count());
+
+        $this->withToken($repToken)->postJson("/api/gateway-sales/{$saleId}/shaparak", [
+            'decision' => 'approved',
+        ])->assertForbidden();
+
+        $this->withToken($seniorToken)->postJson("/api/gateway-sales/{$saleId}/shaparak", [
+            'decision' => 'approved',
+            'note' => 'تایید فاینوپال و شاپرک',
+            'reference' => 'SHP-TEST-19',
+        ])->assertOk()
+            ->assertJsonPath('status', 'successful')
+            ->assertJsonPath('shaparak_reference', 'SHP-TEST-19');
+
+        $this->assertGreaterThan(0, Commission::query()->where('gateway_sale_id', $saleId)->count());
     }
 
     public function test_only_senior_manager_can_list_or_create_benefit_transfers(): void
@@ -728,10 +789,12 @@ class FinopalPlatformTest extends TestCase
 
         $this->withToken($token)->getJson('/api/geo/locations')
             ->assertOk()
-            ->assertJsonPath('states.0.title', 'آذربايجان شرقي')
+            ->assertJsonPath('states.0.title', 'آذربایجان شرقی')
             ->assertJsonCount(31, 'states');
 
-        $this->assertGreaterThan(1000, count($this->withToken($token)->getJson('/api/geo/locations')->json('cities')));
+        $cities = $this->withToken($token)->getJson('/api/geo/locations')->json('cities');
+        $this->assertGreaterThan(1000, count($cities));
+        $this->assertTrue(collect($cities)->contains(fn ($city) => str_contains((string) $city['title'], 'قزوین')));
     }
 
     public function test_conversation_list_includes_unread_count_per_chat(): void

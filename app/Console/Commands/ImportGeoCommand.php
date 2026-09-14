@@ -18,7 +18,7 @@ class ImportGeoCommand extends Command
         try {
             $result = $this->option('from-shop-maker')
                 ? $geo->importFromShopMaker()
-                : $geo->importFromJson($this->option('path') ?: null);
+                : $geo->importFromJson($this->option('path') ?: null, persistNormalized: ! $this->option('path'));
         } catch (\Throwable $e) {
             $this->error($e->getMessage());
 

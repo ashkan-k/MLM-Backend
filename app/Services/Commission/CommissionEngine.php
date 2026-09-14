@@ -19,6 +19,10 @@ class CommissionEngine
 
     public function process(GatewaySale $sale): array
     {
+        if ($sale->status !== 'successful') {
+            return [];
+        }
+
         return DB::transaction(function () use ($sale) {
             $sale->load(['representatives.user', 'referrers.user', 'managers.user', 'managers.role']);
             $this->distributor->split($sale);

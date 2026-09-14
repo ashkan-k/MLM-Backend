@@ -4,6 +4,7 @@ namespace App\Services\Geo;
 
 use App\Models\GeoCity;
 use App\Models\GeoState;
+use App\Support\PersianText;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 
@@ -14,7 +15,7 @@ class GeoCatalogService
         return database_path('data/iran-geo.json');
     }
 
-    public function importFromJson(?string $path = null): array
+    public function importFromJson(?string $path = null, bool $persistNormalized = false): array
     {
         $file = $path ?: $this->jsonPath();
         if (! File::exists($file)) {
@@ -22,6 +23,10 @@ class GeoCatalogService
         }
 
         $payload = json_decode(File::get($file), true, 512, JSON_THROW_ON_ERROR);
+        $payload = $this->normalizePayload($payload);
+        if ($persistNormalized) {
+            $this->writeJson($payload);
+        }
 
         return $this->importPayload($payload);
     }
@@ -52,18 +57,15 @@ class GeoCatalogService
             ])
             ->all();
 
-        $payload = ['states' => $states, 'cities' => $cities];
-        File::ensureDirectoryExists(dirname($this->jsonPath()));
-        File::put(
-            $this->jsonPath(),
-            json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)
-        );
+        $payload = $this->normalizePayload(['states' => $states, 'cities' => $cities]);
+        $this->writeJson($payload);
 
         return $this->importPayload($payload);
     }
 
     public function importPayload(array $payload): array
     {
+        $payload = $this->normalizePayload($payload);
         $states = $payload['states'] ?? [];
         $cities = $payload['cities'] ?? [];
 
@@ -93,5 +95,35 @@ class GeoCatalogService
         });
 
         return ['states' => count($states), 'cities' => count($cities)];
+    }
+
+    private function normalizePayload(array $payload): array
+    {
+        $payload['states'] = array_map(function ($row) {
+            $row['title'] = PersianText::normalize($row['title'] ?? '');
+            $row['slug'] = $row['slug'] ?? null;
+
+            return $row;
+        }, $payload['states'] ?? []);
+
+        $payload['cities'] = array_map(function ($row) {
+            $row['title'] = PersianText::normalize($row['title'] ?? '');
+            $row['sub_title'] = ($row['sub_title'] ?? null) !== null && $row['sub_title'] !== ''
+                ? PersianText::normalize((string) $row['sub_title'])
+                : null;
+
+            return $row;
+        }, $payload['cities'] ?? []);
+
+        return $payload;
+    }
+
+    private function writeJson(array $payload): void
+    {
+        File::ensureDirectoryExists(dirname($this->jsonPath()));
+        File::put(
+            $this->jsonPath(),
+            json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)
+        );
     }
 }

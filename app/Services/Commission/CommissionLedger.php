@@ -7,6 +7,7 @@ use App\Models\GatewaySale;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Wallet\WalletService;
+use App\Support\Money;
 
 class CommissionLedger
 {
@@ -33,9 +34,9 @@ class CommissionLedger
             'role_id' => $role->id,
             'gateway_sale_id' => $sale->id,
             'rule_version_id' => $ruleVersionId,
-            'base_amount' => $baseAmount,
-            'commission_percent' => $percent,
-            'commission_amount' => $amount,
+            'base_amount' => Money::normalize($baseAmount, 3),
+            'commission_percent' => Money::normalize($percent, 3),
+            'commission_amount' => Money::normalize($amount, 3),
             'status' => 'posted',
             'idempotency_key' => $idempotencyKey,
             'metadata' => $metadata,
@@ -44,7 +45,7 @@ class CommissionLedger
         $wallet = $this->wallets->walletFor($user, $role);
         $this->wallets->credit(
             $wallet,
-            $amount,
+            (string) $commission->commission_amount,
             'commission_credit',
             'wallet-'.$idempotencyKey,
             Commission::class,

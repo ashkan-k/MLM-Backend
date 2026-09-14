@@ -149,7 +149,7 @@ class SuperuserReportService
 
     private function salesQuery(Carbon $from, Carbon $to, ?array $userIds)
     {
-        $query = GatewaySale::query()->whereBetween('sold_at', [$from, $to]);
+        $query = GatewaySale::query()->where('status', 'successful')->whereBetween('sold_at', [$from, $to]);
         if ($userIds !== null) {
             $query->where(function ($q) use ($userIds) {
                 $q->whereHas('representatives', fn ($r) => $r->whereIn('user_id', $userIds))

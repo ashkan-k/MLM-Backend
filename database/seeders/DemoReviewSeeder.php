@@ -11,6 +11,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\UserCourseProgress;
 use App\Models\UserRole;
+use App\Services\Gateway\GatewayReviewService;
 use App\Services\Gateway\GatewaySaleService;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Promotion\PromotionService;
@@ -158,6 +159,67 @@ class DemoReviewSeeder extends Seeder
                 }
             }
         }
+
+        $this->seedReviewQueue($rep, $senior);
+    }
+
+    private function seedReviewQueue(?User $rep, User $senior): void
+    {
+        if (! $rep) {
+            return;
+        }
+
+        $sales = app(GatewaySaleService::class);
+        $reviews = app(GatewayReviewService::class);
+
+        $waitingInspect = $sales->record([
+            'external_id' => 'GW-WAIT-INSPECT',
+            'name' => 'درگاه در انتظار بازرسی',
+            'amount' => 1750000,
+            'representative_user_id' => $rep->id,
+            'customer' => [
+                'name' => 'مشتری بازرسی',
+                'mobile' => '09121230091',
+                'national_id' => '0012345691',
+                'sheba' => 'IR120170000000123456789091',
+                'province' => 'قزوین',
+                'city' => 'قزوین',
+                'birth_place' => 'قزوین — قزوین',
+            ],
+            'idempotency_key' => 'demo-wait-inspect',
+        ]);
+
+        $waitingShaparak = $sales->record([
+            'external_id' => 'GW-WAIT-SHAPARAK',
+            'name' => 'درگاه در انتظار شاپرک',
+            'amount' => 2100000,
+            'representative_user_id' => $rep->id,
+            'customer' => [
+                'name' => 'مشتری شاپرک',
+                'mobile' => '09121230092',
+                'national_id' => '0012345692',
+                'sheba' => 'IR120170000000123456789092',
+                'province' => 'تهران',
+                'city' => 'تهران',
+            ],
+            'idempotency_key' => 'demo-wait-shaparak',
+        ]);
+
+        if ($waitingShaparak->status === 'pending_inspection') {
+            $reviews->inspect($senior, $waitingShaparak, 'approved', 'مدارک کامل است؛ منتظر تایید شاپرک.');
+        }
+
+        Notification::query()->firstOrCreate(
+            [
+                'user_id' => $senior->id,
+                'type' => 'gateway.submitted',
+                'title' => 'درگاه جدید برای بازرسی',
+            ],
+            [
+                'body' => 'درگاه «درگاه در انتظار بازرسی» ثبت شده و تا تایید شاپرک پورسانتی واریز نمی‌شود.',
+                'data' => ['gateway_sale_id' => $waitingInspect->id, 'path' => 'gateways', 'demo' => true],
+            ]
+        );
     }
 
     private function ensureMultiRoleTransferUser(?User $dev, WalletService $wallets): ?User
@@ -277,6 +339,7 @@ class DemoReviewSeeder extends Seeder
             'representative_user_id' => $user->id,
             'customer' => ['name' => 'مشتری انتقال مزایا', 'mobile' => '09121230077'],
             'idempotency_key' => 'demo-'.$prefix.'-gateway-1',
+            'status' => 'successful',
         ]);
         $sales->record([
             'external_id' => 'GW-'.strtoupper($prefix).'-2',
@@ -285,6 +348,7 @@ class DemoReviewSeeder extends Seeder
             'representative_user_id' => $user->id,
             'customer' => ['name' => 'فروشگاه نمونه انتقال', 'mobile' => '09121230078'],
             'idempotency_key' => 'demo-'.$prefix.'-gateway-2',
+            'status' => 'successful',
         ]);
         $sales->record([
             'external_id' => 'GW-'.strtoupper($prefix).'-3',
@@ -293,6 +357,7 @@ class DemoReviewSeeder extends Seeder
             'representative_user_id' => $user->id,
             'customer' => ['name' => 'مشتری خدماتی انتقال', 'mobile' => '09121230079'],
             'idempotency_key' => 'demo-'.$prefix.'-gateway-3',
+            'status' => 'successful',
         ]);
 
         foreach ($user->fresh()->roles as $role) {

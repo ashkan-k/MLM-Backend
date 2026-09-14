@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Commission;
 use App\Models\Gateway;
 use App\Models\GatewaySale;
+use App\Models\User;
 use App\Services\Authorization\PermissionService;
+use App\Services\Gateway\GatewayReviewService;
 use App\Services\Gateway\GatewaySaleService;
 use Illuminate\Http\Request;
 
@@ -27,7 +29,16 @@ class GatewayController extends Controller
     public function sales(Request $request)
     {
         $user = $request->user();
-        $query = GatewaySale::query()->with(['gateway', 'customer', 'representatives.user', 'referrers.user', 'managers.user']);
+        $query = GatewaySale::query()->with([
+            'gateway',
+            'customer',
+            'representatives.user',
+            'referrers.user',
+            'managers.user',
+            'managers.role',
+            'reviews.actor:id,name,mobile',
+            'commissions.role',
+        ]);
 
         if (! $user->isSuperuser() && ! $user->hasRole('senior_manager')) {
             $query->where(function ($q) use ($user) {
@@ -106,7 +117,62 @@ class GatewayController extends Controller
             $data['representative_user_id'] = $user->id;
         }
 
-        return response()->json($sales->record($data)->load(['gateway', 'customer', 'representatives.user']), 201);
+        return response()->json($sales->record($data)->load(['gateway', 'customer', 'representatives.user', 'reviews.actor', 'commissions']), 201);
+    }
+
+    public function show(Request $request, GatewaySale $sale)
+    {
+        $this->assertCanView($request->user(), $sale);
+
+        return response()->json($sale->load([
+            'gateway',
+            'customer',
+            'representatives.user',
+            'referrers.user',
+            'managers.user',
+            'managers.role',
+            'reviews.actor:id,name,mobile',
+            'commissions.role',
+        ]));
+    }
+
+    public function inspect(Request $request, GatewaySale $sale, GatewayReviewService $reviews, PermissionService $permissions)
+    {
+        $user = $request->user();
+        $role = $request->attributes->get('active_role');
+        if (! $user->isSuperuser()) {
+            $permissions->authorize($user, 'senior_manager.gateway.inspect', $role);
+        }
+
+        $data = $request->validate([
+            'decision' => ['required', 'in:approved,rejected'],
+            'note' => ['nullable', 'string'],
+        ]);
+
+        return response()->json($reviews->inspect($user, $sale, $data['decision'], $data['note'] ?? ''));
+    }
+
+    public function shaparak(Request $request, GatewaySale $sale, GatewayReviewService $reviews, PermissionService $permissions)
+    {
+        $user = $request->user();
+        $role = $request->attributes->get('active_role');
+        if (! $user->isSuperuser()) {
+            $permissions->authorize($user, 'senior_manager.gateway.inspect', $role);
+        }
+
+        $data = $request->validate([
+            'decision' => ['required', 'in:approved,rejected'],
+            'note' => ['nullable', 'string'],
+            'reference' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        return response()->json($reviews->confirmShaparak(
+            $user,
+            $sale,
+            $data['decision'],
+            $data['note'] ?? '',
+            $data['reference'] ?? null,
+        ));
     }
 
     public function commissions(Request $request)
@@ -123,5 +189,22 @@ class GatewayController extends Controller
         }
 
         return response()->json($query->latest()->paginate(20));
+    }
+
+    private function assertCanView(User $user, GatewaySale $sale): void
+    {
+        if ($user->isSuperuser() || $user->hasRole('senior_manager')) {
+            return;
+        }
+
+        $sale->loadMissing(['representatives', 'referrers', 'managers']);
+        $ids = collect()
+            ->merge($sale->representatives->pluck('user_id'))
+            ->merge($sale->referrers->pluck('user_id'))
+            ->merge($sale->managers->pluck('user_id'));
+
+        if (! $ids->contains($user->id)) {
+            abort(403, 'دسترسی به این درگاه مجاز نیست.');
+        }
     }
 }

@@ -8,8 +8,10 @@ class Money
 {
     public static function normalize(string|int|float $value, int $scale = 3): string
     {
-        if (is_int($value) || is_float($value)) {
-            $value = number_format((float) $value, $scale, '.', '');
+        if (is_int($value)) {
+            $value = (string) $value;
+        } elseif (is_float($value)) {
+            $value = sprintf('%.12F', $value);
         }
 
         if (! is_numeric($value)) {
@@ -21,9 +23,11 @@ class Money
 
     public static function percentOf(string $amount, string $percent, int $scale = 3): string
     {
-        $product = bcmul(self::normalize($amount, 6), self::normalize($percent, 6), 6);
+        $inner = max($scale + 8, 12);
+        $product = bcmul(self::normalize($amount, $inner), self::normalize($percent, $inner), $inner);
+        $raw = bcdiv($product, '100', $inner);
 
-        return bcdiv($product, '100', $scale);
+        return bcadd($raw, '0', $scale);
     }
 
     public static function shareOf(string $value, string $sharePercent, int $scale = 3): string

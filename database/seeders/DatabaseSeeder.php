@@ -239,6 +239,7 @@ class DatabaseSeeder extends Seeder
             'representative_user_id' => $created['rep']->id,
             'customer' => ['name' => 'مشتری یک', 'mobile' => '09121230001'],
             'idempotency_key' => 'seed-solo-1',
+            'status' => 'successful',
         ]);
         $sales->record([
             'external_id' => 'GW-SHARE-1',
@@ -247,6 +248,7 @@ class DatabaseSeeder extends Seeder
             'shared_link_id' => $link->id,
             'customer' => ['name' => 'مشتری اشتراکی', 'mobile' => '09121230002'],
             'idempotency_key' => 'seed-share-1',
+            'status' => 'successful',
         ]);
         $sales->record([
             'external_id' => 'GW-MULTI-B-1',
@@ -255,6 +257,7 @@ class DatabaseSeeder extends Seeder
             'representative_user_id' => $created['multi_b']->id,
             'customer' => ['name' => 'مشتری انتقال مزایا', 'mobile' => '09121230077'],
             'idempotency_key' => 'demo-multi-b-gateway-1',
+            'status' => 'successful',
         ]);
 
         $this->call(GeoSeeder::class);

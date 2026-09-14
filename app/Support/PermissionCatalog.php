@@ -28,11 +28,22 @@ class PermissionCatalog
         ];
     }
 
+    /** @return array<string, array{name: string, roles: '*'|list<string>}> */
+    public static function actionPermissions(): array
+    {
+        return [
+            'senior_manager.gateway.inspect' => ['name' => 'مدیر ارشد / بازرسی مدارک درگاه', 'roles' => ['senior_manager']],
+            'senior_manager.gateway.shaparak' => ['name' => 'مدیر ارشد / تایید شاپرک و فاینوپال', 'roles' => ['senior_manager']],
+            'superuser.gateway.shaparak' => ['name' => 'تایید شاپرک و فاینوپال', 'roles' => ['senior_manager']],
+        ];
+    }
+
     public static function sync(): void
     {
         $roles = Role::query()->get()->keyBy('slug');
+        $catalog = array_merge(self::pagePermissions(), self::actionPermissions());
 
-        foreach (self::pagePermissions() as $slug => $meta) {
+        foreach ($catalog as $slug => $meta) {
             $parts = explode('.', $slug);
             $permission = Permission::query()->updateOrCreate(
                 ['slug' => $slug],

@@ -17,6 +17,14 @@ class GatewaySale extends Model
         'status',
         'sold_at',
         'idempotency_key',
+        'shaparak_reference',
+        'inspected_at',
+        'inspected_by',
+        'shaparak_at',
+        'shaparak_by',
+        'rejected_at',
+        'rejected_by',
+        'rejection_note',
     ];
 
     protected function casts(): array
@@ -24,6 +32,9 @@ class GatewaySale extends Model
         return [
             'amount' => 'decimal:2',
             'sold_at' => 'datetime',
+            'inspected_at' => 'datetime',
+            'shaparak_at' => 'datetime',
+            'rejected_at' => 'datetime',
         ];
     }
 
@@ -55,5 +66,20 @@ class GatewaySale extends Model
     public function commissions(): HasMany
     {
         return $this->hasMany(Commission::class);
+    }
+
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(GatewaySaleReview::class)->orderBy('id');
+    }
+
+    public function inspector(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'inspected_by');
+    }
+
+    public function shaparakReviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'shaparak_by');
     }
 }

@@ -18,6 +18,8 @@ class CommissionMathTest extends TestCase
         $this->assertSame('3.000', $calc->sharedPercent('15.000', '20.000'));
         $this->assertSame('0.800', $calc->sharedPercent('2.000', '40.000'));
         $this->assertSame('10.000', $calc->qualifiedPercent('7.500', '10.000', true));
+        $this->assertSame('4.999', $calc->sharedPercent('15.000', '33.333'));
+        $this->assertSame('49990.000', $calc->amount('1000000', '4.999'));
     }
 
     public function test_shares_must_total_one_hundred(): void
@@ -32,6 +34,8 @@ class CommissionMathTest extends TestCase
     public function test_money_never_uses_binary_floats(): void
     {
         $this->assertSame('150000.000', Money::percentOf('1000000', '15.000'));
+        $this->assertSame('4.999', Money::percentOf('15.000', '33.333'));
+        $this->assertSame('155555.550', Money::percentOf('1000000', '15.555555'));
         $this->assertSame('0', (string) Money::cmp(Money::add('50.000', '50.000'), '100.000'));
     }
 }

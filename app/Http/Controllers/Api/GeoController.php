@@ -12,7 +12,7 @@ class GeoController extends Controller
     {
         return response()->json([
             'states' => GeoState::query()->orderBy('id')->get(['id', 'title', 'slug']),
-            'cities' => GeoCity::query()->orderBy('title')->get(['id', 'state_id', 'title', 'sub_title']),
+            'cities' => GeoCity::query()->orderBy('title')->get(['id', 'state_id', 'title', 'sub_title', 'slug']),
         ]);
     }
 }

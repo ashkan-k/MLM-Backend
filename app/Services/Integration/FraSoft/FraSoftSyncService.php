@@ -120,6 +120,7 @@ class FraSoftSyncService
             'external_id' => (string) ($payload['gateway_id'] ?? $payload['external_id']),
             'name' => $payload['name'] ?? 'FraSoft Gateway',
             'source' => 'frasoft',
+            'status' => 'successful',
             'amount' => $payload['amount'] ?? 0,
             'representatives' => $reps ?: [['user_id' => $this->upsertUser($payload['representative'] ?? $payload)->id, 'share_percent' => '100.000']],
             'idempotency_key' => 'frasoft-sale-'.($payload['id'] ?? Str::uuid()),
