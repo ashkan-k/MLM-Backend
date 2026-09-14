@@ -33,10 +33,14 @@ class WithdrawalController extends Controller
 
         $wallet = Wallet::query()->findOrFail($data['wallet_id']);
 
-        return response()->json(
-            $service->request($request->user(), $wallet, (string) $data['amount'], $data['idempotency_key'] ?? null),
-            201
-        );
+        try {
+            return response()->json(
+                $service->request($request->user(), $wallet, (string) $data['amount'], $data['idempotency_key'] ?? null),
+                201
+            );
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
 
     public function decide(Request $request, WithdrawalRequest $withdrawal, WithdrawalService $service)

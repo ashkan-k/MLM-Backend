@@ -188,6 +188,28 @@ class FinopalPlatformTest extends TestCase
         app(WithdrawalService::class)->decide($senior, $withdrawal, 'approved', 'should fail');
     }
 
+    public function test_withdrawal_without_balance_returns_unprocessable(): void
+    {
+        $login = $this->postJson('/api/auth/login', [
+            'mobile' => '09124444444',
+            'password' => 'Password123!',
+            'role_slug' => 'representative_referrer',
+        ])->assertOk();
+
+        $user = User::query()->where('mobile', '09124444444')->firstOrFail();
+        $role = Role::query()->where('slug', 'representative_referrer')->firstOrFail();
+        $wallet = app(WalletService::class)->walletFor($user, $role);
+
+        $this->withToken($login->json('token'))
+            ->postJson('/api/withdrawals', [
+                'wallet_id' => $wallet->id,
+                'amount' => '999999',
+                'idempotency_key' => 'wd-no-balance',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'موجودی کافی نیست.');
+    }
+
     public function test_tree_chat_allows_ancestors_and_denies_cross_branch(): void
     {
         $seniorLogin = $this->postJson('/api/auth/login', [

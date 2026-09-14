@@ -9,6 +9,8 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\UserCourseProgress;
 use App\Services\Promotion\PromotionService;
+use App\Services\Wallet\WalletService;
+use App\Support\Money;
 use Illuminate\Database\Seeder;
 
 class DemoReviewSeeder extends Seeder
@@ -23,19 +25,42 @@ class DemoReviewSeeder extends Seeder
         $referrer = User::query()->where('mobile', '09124444444')->first();
         $sales = User::query()->where('mobile', '09123333333')->first();
         $shareA = User::query()->where('mobile', '09127777777')->first();
+        $shareB = User::query()->where('mobile', '09128888888')->first();
+        $outsider = User::query()->where('mobile', '09129999999')->first();
+        $dev = User::query()->where('mobile', '09122222222')->first();
         if (! $senior) {
             return;
         }
 
+        $walletService = app(WalletService::class);
+        foreach ($senior->roles as $role) {
+            if ($role->slug === 'superuser') {
+                continue;
+            }
+            $wallet = $walletService->walletFor($senior, $role);
+            if (Money::cmp($wallet->availableBalance(), '500000') < 0) {
+                $walletService->credit(
+                    $wallet,
+                    '2000000.000',
+                    'adjustment',
+                    'demo-wallet-topup-'.$senior->id.'-'.$role->id.'-v2'
+                );
+            }
+        }
+
         $promotions = app(PromotionService::class);
         $pending = [
-            [$rep, 'representative', 'sales_manager'],
+            [$shareB, 'representative', 'sales_manager'],
+            [$outsider, 'representative', 'sales_manager'],
             [$referrer, 'representative', 'sales_manager'],
-            [$sales, 'sales_manager', 'development_manager'],
+            [$rep, 'representative', 'sales_manager'],
             [$shareA, 'representative', 'sales_manager'],
+            [$sales, 'sales_manager', 'development_manager'],
+            [$rep, 'sales_manager', 'development_manager'],
+            [$shareA, 'sales_manager', 'development_manager'],
         ];
         foreach ($pending as [$user, $from, $target]) {
-            if (! $user) {
+            if (! $user || $user->hasRole($target) || ! $user->hasRole($from)) {
                 continue;
             }
             $exists = PromotionRequest::query()
@@ -83,8 +108,8 @@ class DemoReviewSeeder extends Seeder
             ]);
         }
 
-        $dev = User::query()->where('mobile', '09122222222')->first();
-        $shareB = User::query()->where('mobile', '09128888888')->first();
+        $dev = $dev ?? User::query()->where('mobile', '09122222222')->first();
+        $shareB = $shareB ?? User::query()->where('mobile', '09128888888')->first();
         $courses = Course::query()->with('levels')->where('is_active', true)->get();
         foreach ([$rep, $sales, $shareA, $referrer, $dev, $shareB] as $index => $user) {
             if (! $user) {

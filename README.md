@@ -17,7 +17,7 @@ php artisan migrate:fresh --seed
 php artisan serve --host=127.0.0.1 --port=8000
 ```
 
-Optional realtime:
+Chat realtime (keep this terminal open). If it is stopped, the UI falls back to HTTP:
 
 ```bash
 npm install ws
