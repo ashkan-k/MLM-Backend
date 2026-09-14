@@ -257,6 +257,7 @@ class DatabaseSeeder extends Seeder
             'idempotency_key' => 'demo-multi-b-gateway-1',
         ]);
 
+        $this->call(GeoSeeder::class);
         $this->call(DemoReviewSeeder::class);
     }
 }

@@ -718,6 +718,22 @@ class FinopalPlatformTest extends TestCase
         $this->withToken($token)->postJson('/api/users/'.$super->id.'/block')->assertForbidden();
     }
 
+    public function test_geo_locations_lists_imported_states_and_cities(): void
+    {
+        $token = $this->postJson('/api/auth/login', [
+            'mobile' => '09125555555',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->json('token');
+
+        $this->withToken($token)->getJson('/api/geo/locations')
+            ->assertOk()
+            ->assertJsonPath('states.0.title', 'آذربايجان شرقي')
+            ->assertJsonCount(31, 'states');
+
+        $this->assertGreaterThan(1000, count($this->withToken($token)->getJson('/api/geo/locations')->json('cities')));
+    }
+
     public function test_conversation_list_includes_unread_count_per_chat(): void
     {
         $senior = $this->postJson('/api/auth/login', [

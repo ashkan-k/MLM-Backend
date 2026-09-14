@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\BenefitTransferController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\GatewayController;
+use App\Http\Controllers\Api\GeoController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\PromotionController;
@@ -30,6 +31,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/organization/team', [OrganizationController::class, 'team']);
         Route::get('/representatives', [OrganizationController::class, 'representatives']);
         Route::get('/users/directory', [OrganizationController::class, 'directory']);
+        Route::get('/geo/locations', [GeoController::class, 'locations']);
 
         Route::get('/wallets', [WalletController::class, 'show']);
         Route::get('/wallets/aggregate', [WalletController::class, 'aggregate']);
