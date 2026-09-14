@@ -717,4 +717,45 @@ class FinopalPlatformTest extends TestCase
 
         $this->withToken($token)->postJson('/api/users/'.$super->id.'/block')->assertForbidden();
     }
+
+    public function test_conversation_list_includes_unread_count_per_chat(): void
+    {
+        $senior = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ])->assertOk();
+        $dev = User::query()->where('mobile', '09122222222')->firstOrFail();
+
+        $conv = $this->withToken($senior->json('token'))
+            ->postJson('/api/conversations', ['participant_ids' => [$dev->id]])
+            ->assertCreated()
+            ->json('id');
+
+        $this->withToken($senior->json('token'))
+            ->postJson('/api/conversations/'.$conv.'/messages', ['body' => 'پیام نخوانده'])
+            ->assertCreated();
+
+        $devLogin = $this->postJson('/api/auth/login', [
+            'mobile' => '09122222222',
+            'password' => 'Password123!',
+            'role_slug' => 'development_manager',
+        ])->assertOk();
+
+        $this->withToken($devLogin->json('token'))
+            ->getJson('/api/conversations')
+            ->assertOk()
+            ->assertJsonPath('unread', 1)
+            ->assertJsonPath('conversations.0.unread_count', 1);
+
+        $this->withToken($devLogin->json('token'))
+            ->postJson('/api/conversations/'.$conv.'/read')
+            ->assertOk();
+
+        $this->withToken($devLogin->json('token'))
+            ->getJson('/api/conversations')
+            ->assertOk()
+            ->assertJsonPath('unread', 0)
+            ->assertJsonPath('conversations.0.unread_count', 0);
+    }
 }

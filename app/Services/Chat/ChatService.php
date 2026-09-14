@@ -111,6 +111,19 @@ class ChatService
             ->count();
     }
 
+    public function unreadCountsByConversation(User $user): array
+    {
+        return Message::query()
+            ->whereHas('conversation.participantRows', fn ($q) => $q->where('user_id', $user->id))
+            ->where('sender_user_id', '!=', $user->id)
+            ->whereDoesntHave('reads', fn ($q) => $q->where('user_id', $user->id))
+            ->selectRaw('conversation_id, COUNT(*) as unread_count')
+            ->groupBy('conversation_id')
+            ->pluck('unread_count', 'conversation_id')
+            ->mapWithKeys(fn ($count, $id) => [(int) $id => (int) $count])
+            ->all();
+    }
+
     private function broadcast(string $event, array $payload): void
     {
         try {

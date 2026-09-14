@@ -45,6 +45,13 @@ class ChatController extends Controller
             ->orderByDesc('id')
             ->get();
 
+        $counts = $chat->unreadCountsByConversation($user);
+        $items = $items->map(function (Conversation $conversation) use ($counts) {
+            $conversation->setAttribute('unread_count', $counts[$conversation->id] ?? 0);
+
+            return $conversation;
+        });
+
         return response()->json([
             'conversations' => $items,
             'unread' => $chat->unreadCount($user),
