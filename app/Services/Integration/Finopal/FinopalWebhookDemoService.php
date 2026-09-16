@@ -7,6 +7,7 @@ use App\Models\FinopalTransaction;
 use App\Models\Gateway;
 use App\Models\GatewaySale;
 use App\Models\OrganizationNode;
+use App\Models\ReferralCode;
 use App\Models\Role;
 use App\Models\SharedLink;
 use App\Models\User;
@@ -423,6 +424,11 @@ class FinopalWebhookDemoService
                 throw new \RuntimeException(
                     "کاربر دمو {$mobile} پیدا نشد. یک‌بار DatabaseSeeder را اجرا کنید: php artisan db:seed --class=DatabaseSeeder"
                 );
+            }
+            if (! $user->is_active) {
+                $user->update(['is_active' => true]);
+                ReferralCode::query()->where('user_id', $user->id)->update(['is_active' => true]);
+                $user->refresh();
             }
             $out[$key] = $user;
         }

@@ -137,26 +137,40 @@ class FinopalTransactionService
 
     private function notifyTree($sale, Gateway $gateway, FinopalTransaction $tx): void
     {
-        $sale->loadMissing(['representatives', 'referrers', 'managers']);
-        $ids = collect()
-            ->merge($sale->representatives->pluck('user_id'))
-            ->merge($sale->referrers->pluck('user_id'))
-            ->merge($sale->managers->pluck('user_id'))
-            ->unique()
-            ->filter();
+        $tx->loadMissing('commissions');
+        $byUser = $tx->commissions
+            ->groupBy('user_id')
+            ->map(fn ($rows) => $rows->reduce(
+                fn (string $sum, $row) => Money::add($sum, (string) $row->commission_amount),
+                '0.000'
+            ));
 
-        foreach ($ids as $userId) {
+        foreach ($byUser as $userId => $amount) {
+            if (Money::cmp($amount, '0') <= 0) {
+                continue;
+            }
+
+            $pretty = $this->formatToman($amount);
+
             Notification::query()->create([
                 'user_id' => $userId,
                 'type' => 'gateway.transaction',
-                'title' => 'تراکنش درگاه تایید شد',
-                'body' => "تراکنش درگاه «{$gateway->name}» ثبت شد و پورسانت نقش‌ها از سود تراکنش محاسبه گردید.",
+                'title' => 'تبریک! پورسانت شما واریز شد',
+                'body' => "از فروش موفق درگاه «{$gateway->name}»، مبلغ {$pretty} تومان سود سهم شما به کیف پول نقش‌تان واریز شد. دمتون گرم — همین‌طور ادامه بدید!",
                 'data' => [
                     'gateway_sale_id' => $sale->id,
                     'finopal_transaction_id' => $tx->id,
+                    'commission_amount' => Money::normalize($amount),
                     'path' => 'commissions',
                 ],
             ]);
         }
+    }
+
+    private function formatToman(string $amount): string
+    {
+        $whole = (string) (int) round((float) Money::normalize($amount, 3));
+
+        return number_format((int) $whole, 0, '.', ',');
     }
 }

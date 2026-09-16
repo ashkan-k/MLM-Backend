@@ -700,6 +700,16 @@ class FinopalPlatformTest extends TestCase
             $this->assertSame('40000.000', (string) $row->base_amount);
         }
 
+        $notif = \App\Models\Notification::query()
+            ->where('type', 'gateway.transaction')
+            ->where('user_id', $fromWebhook->first()->user_id)
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($notif);
+        $this->assertStringContainsString('پورسانت شما واریز شد', (string) $notif->title);
+        $this->assertStringContainsString('به کیف پول نقش‌تان واریز شد', (string) $notif->body);
+        $this->assertNotEmpty($notif->data['commission_amount'] ?? null);
+
         $this->postJson('/api/webhooks/finopal/transaction', [
             'event' => 'transaction.verified',
             'merchant_id' => 'fino-seed-share-0001',
