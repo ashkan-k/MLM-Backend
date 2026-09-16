@@ -22,6 +22,7 @@ use App\Services\Audit\AuditService;
 use App\Services\Integration\FraSoft\FraSoftSyncService;
 use App\Services\Integration\FraSoft\FraSoftWebhookHandler;
 use App\Services\Organization\OrganizationTreeService;
+use App\Services\Referral\SelfReferralService;
 use App\Services\Report\SuperuserReportService;
 use App\Services\User\UserBlockService;
 use App\Services\Wallet\WalletService;
@@ -583,7 +584,17 @@ class SuperuserController extends Controller
                     ->where('is_active', true)
                     ->exists();
                 if (! $hasNode) {
-                    $tree->attach($user, $role, $parent, now()->toDateString());
+                    $attachParent = $parent;
+                    if ($role->slug === 'senior_manager') {
+                        $attachParent = null;
+                    } elseif ($role->slug === 'development_manager' && in_array('senior_manager', $slugs, true)) {
+                        $attachParent = $tree->activeNodesFor($user, 'senior_manager')->first() ?? $parent;
+                    } elseif ($role->slug === 'sales_manager' && in_array('senior_manager', $slugs, true)) {
+                        $attachParent = $tree->activeNodesFor($user, 'development_manager')->first()
+                            ?? $tree->activeNodesFor($user, 'senior_manager')->first()
+                            ?? $parent;
+                    }
+                    $tree->attach($user, $role, $attachParent, now()->toDateString());
                 }
             }
         }
@@ -592,6 +603,11 @@ class SuperuserController extends Controller
             ->where('user_id', $user->id)
             ->whereNotIn('role_id', $keepIds)
             ->update(['is_active' => false, 'effective_to' => now()->toDateString()]);
+
+        if (in_array('senior_manager', $slugs, true)) {
+            $tree->ensureSeniorManagerChain($user->fresh('roles'));
+            app(SelfReferralService::class)->ensureForSenior($user->fresh('roles'));
+        }
     }
 
     private function validatedCourse(Request $request, bool $requireLevels = true): array

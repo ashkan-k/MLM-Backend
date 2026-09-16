@@ -15,6 +15,7 @@ use App\Support\PermissionCatalog;
 use App\Services\Gateway\GatewaySaleService;
 use App\Services\Integration\Finopal\FinopalTransactionService;
 use App\Services\Organization\OrganizationTreeService;
+use App\Services\Referral\SelfReferralService;
 use App\Services\Referral\SharedLinkService;
 use App\Services\Wallet\WalletService;
 use Illuminate\Database\Seeder;
@@ -189,6 +190,10 @@ class DatabaseSeeder extends Seeder
         $tree->attach($created['share_a'], $roles['representative'], $salesNode, now()->subMonths(3)->toDateString());
         $tree->attach($created['share_b'], $roles['representative'], $salesNode, now()->subMonths(3)->toDateString());
         $tree->attach($created['outsider'], $roles['representative'], $seniorNode, now()->subMonths(2)->toDateString());
+
+        // Empty-org default: senior also holds DM/SM nodes + self-referrer (2% plan).
+        $tree->ensureSeniorManagerChain($created['senior']);
+        app(SelfReferralService::class)->ensureForSenior($created['senior']);
 
         foreach (['rep', 'share_a', 'share_b'] as $key) {
             RepresentativeReferral::query()->create([

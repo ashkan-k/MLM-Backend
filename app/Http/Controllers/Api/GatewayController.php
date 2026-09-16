@@ -182,6 +182,26 @@ class GatewayController extends Controller
         ));
     }
 
+    public function updateParties(Request $request, GatewaySale $sale, GatewaySaleService $sales)
+    {
+        $user = $request->user();
+        if (! $user->isSuperuser() && ! $user->hasRole('senior_manager')) {
+            abort(403, 'فقط مدیر ارشد یا مدیر سامانه می‌تواند طرف‌های درگاه را تغییر دهد.');
+        }
+
+        $data = $request->validate([
+            'representatives' => ['nullable', 'array', 'min:1'],
+            'representatives.*.user_id' => ['required_with:representatives', 'exists:users,id'],
+            'representatives.*.share_percent' => ['required_with:representatives', 'numeric', 'min:0', 'max:100'],
+            'managers' => ['nullable', 'array'],
+            'managers.*.user_id' => ['required_with:managers', 'exists:users,id'],
+            'managers.*.role_slug' => ['required_with:managers', 'in:sales_manager,development_manager,senior_manager'],
+            'managers.*.commission_percent' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        return response()->json($sales->updateParties($sale, $data));
+    }
+
     public function commissions(Request $request)
     {
         $user = $request->user();

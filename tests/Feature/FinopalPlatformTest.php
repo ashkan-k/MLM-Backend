@@ -933,4 +933,140 @@ class FinopalPlatformTest extends TestCase
             ->assertJsonPath('unread', 0)
             ->assertJsonPath('conversations.0.unread_count', 0);
     }
+
+    public function test_register_requires_referral_code(): void
+    {
+        $this->postJson('/api/auth/register', [
+            'name' => 'بدون معرف',
+            'mobile' => '09129990001',
+            'password' => 'Password123!',
+        ])->assertStatus(422)->assertJsonValidationErrors(['referral_code']);
+
+        $code = \App\Models\ReferralCode::query()->where('user_id', User::query()->where('mobile', '09124444444')->value('id'))->value('code');
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'با معرف',
+            'mobile' => '09129990002',
+            'password' => 'Password123!',
+            'referral_code' => $code,
+        ])->assertCreated();
+    }
+
+    public function test_senior_is_self_referrer_and_holds_manager_chain(): void
+    {
+        $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
+        $this->assertTrue($senior->hasRole('development_manager'));
+        $this->assertTrue($senior->hasRole('sales_manager'));
+        $this->assertTrue(
+            \App\Models\RepresentativeReferral::query()
+                ->where('referred_user_id', $senior->id)
+                ->where('referrer_user_id', $senior->id)
+                ->exists()
+        );
+        $this->assertNotNull(app(\App\Services\Organization\OrganizationTreeService::class)->activeNodesFor($senior, 'sales_manager')->first());
+    }
+
+    public function test_senior_can_reassign_sales_manager_for_representative(): void
+    {
+        $senior = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ])->assertOk();
+
+        $rep = User::query()->where('mobile', '09125555555')->firstOrFail();
+        $altSm = User::query()->where('mobile', '09126666666')->firstOrFail();
+
+        $this->withToken($senior->json('token'))
+            ->postJson('/api/organization/reassign-manager', [
+                'target_user_id' => $rep->id,
+                'manager_user_id' => $altSm->id,
+                'manager_role' => 'sales_manager',
+            ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $repNode = \App\Models\OrganizationNode::query()
+            ->where('user_id', $rep->id)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->firstOrFail();
+        $smNode = app(\App\Services\Organization\OrganizationTreeService::class)->activeNodesFor($altSm, 'sales_manager')->firstOrFail();
+        $this->assertSame($smNode->id, $repNode->parent_node_id);
+    }
+
+    public function test_promotion_to_sales_manager_rehomes_own_and_referred_reps(): void
+    {
+        $referrer = User::query()->where('mobile', '09124444444')->firstOrFail();
+        $referred = User::query()->where('mobile', '09125555555')->firstOrFail();
+        $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
+
+        $service = app(\App\Services\Promotion\PromotionService::class);
+        $request = $service->request($referrer, 'representative', 'sales_manager');
+        $service->decide($senior, $request, 'approved', 'ok');
+
+        $tree = app(\App\Services\Organization\OrganizationTreeService::class);
+        $smNode = $tree->activeNodesFor($referrer->fresh(), 'sales_manager')->firstOrFail();
+        $ownRep = \App\Models\OrganizationNode::query()
+            ->where('user_id', $referrer->id)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->firstOrFail();
+        $referredRep = \App\Models\OrganizationNode::query()
+            ->where('user_id', $referred->id)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->firstOrFail();
+
+        $this->assertSame($smNode->id, $ownRep->parent_node_id);
+        $this->assertSame($smNode->id, $referredRep->parent_node_id);
+    }
+
+    public function test_shared_links_page_available_to_non_representative_roles(): void
+    {
+        $sales = $this->postJson('/api/auth/login', [
+            'mobile' => '09123333333',
+            'password' => 'Password123!',
+            'role_slug' => 'sales_manager',
+        ])->assertOk();
+        $this->assertContains('page.referrals', $sales->json('user.permissions'));
+
+        $rep = $this->postJson('/api/auth/login', [
+            'mobile' => '09125555555',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->assertOk();
+        $this->assertContains('page.referrals', $rep->json('user.permissions'));
+    }
+
+    public function test_appoint_user_to_vacant_sales_manager_slot(): void
+    {
+        $senior = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ])->assertOk();
+
+        $outsider = User::query()->where('mobile', '09127777777')->firstOrFail();
+        $dev = User::query()->where('mobile', '09122222222')->firstOrFail();
+
+        $this->withToken($senior->json('token'))
+            ->postJson('/api/organization/reassign-manager', [
+                'mode' => 'appoint',
+                'appoint_user_id' => $outsider->id,
+                'manager_user_id' => $dev->id,
+                'manager_role' => 'sales_manager',
+            ])
+            ->assertOk()
+            ->assertJsonPath('mode', 'appoint');
+
+        $this->assertTrue($outsider->fresh()->hasRole('sales_manager'));
+        $node = \App\Models\OrganizationNode::query()
+            ->where('user_id', $outsider->id)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'sales_manager'))
+            ->firstOrFail();
+        $parent = app(\App\Services\Organization\OrganizationTreeService::class)->activeNodesFor($dev, 'development_manager')->firstOrFail();
+        $this->assertSame($parent->id, $node->parent_node_id);
+    }
 }

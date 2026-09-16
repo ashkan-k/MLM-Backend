@@ -56,16 +56,14 @@ class PermissionCatalog
 
             foreach ($roles as $role) {
                 $already = $role->permissions()->where('permissions.id', $permission->id)->exists();
-                if ($already) {
-                    continue;
-                }
-
                 $allowed = $role->slug === 'superuser'
                     || $meta['roles'] === '*'
                     || (is_array($meta['roles']) && in_array($role->slug, $meta['roles'], true));
 
-                if ($allowed) {
+                if ($allowed && ! $already) {
                     $role->permissions()->attach($permission->id, ['allowed' => true]);
+                } elseif (! $allowed && $already && $role->slug !== 'superuser') {
+                    $role->permissions()->detach($permission->id);
                 }
             }
         }

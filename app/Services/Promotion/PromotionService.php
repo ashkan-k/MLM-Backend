@@ -5,6 +5,7 @@ namespace App\Services\Promotion;
 use App\Models\Course;
 use App\Models\GatewayRepresentative;
 use App\Models\Notification;
+use App\Models\OrganizationNode;
 use App\Models\PromotionCriteriaResult;
 use App\Models\PromotionRequest;
 use App\Models\RepresentativeReferral;
@@ -218,7 +219,19 @@ class PromotionService
                 );
                 $this->wallets->walletFor($request->user, $request->targetRole);
                 $parent = $this->tree->activeNodesFor($reviewer)->first();
-                $this->tree->attach($request->user, $request->targetRole, $parent, now()->toDateString());
+                $targetSlug = $request->targetRole?->slug;
+                if ($targetSlug === 'sales_manager') {
+                    $parent = $this->tree->activeNodesFor($reviewer, 'development_manager')->first()
+                        ?? $this->tree->activeNodesFor($reviewer, 'senior_manager')->first()
+                        ?? $parent;
+                } elseif ($targetSlug === 'development_manager') {
+                    $parent = $this->tree->activeNodesFor($reviewer, 'senior_manager')->first() ?? $parent;
+                }
+                $newNode = $this->tree->attach($request->user, $request->targetRole, $parent, now()->toDateString());
+
+                if ($targetSlug === 'sales_manager') {
+                    $this->rehomeUnderNewSalesManager($request->user, $newNode);
+                }
             }
 
             $this->audit->record($reviewer, 'promotion.'.$decision, $request);
@@ -241,6 +254,34 @@ class PromotionService
 
             return $request->fresh(['criteria', 'feedback', 'user', 'targetRole']);
         });
+    }
+
+    private function rehomeUnderNewSalesManager(User $salesManager, OrganizationNode $salesNode): void
+    {
+        $ownRep = OrganizationNode::query()
+            ->where('user_id', $salesManager->id)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->first();
+        if ($ownRep && (int) $ownRep->parent_node_id !== (int) $salesNode->id) {
+            $this->tree->reparent($ownRep, $salesNode);
+        }
+
+        $referredIds = RepresentativeReferral::query()
+            ->where('referrer_user_id', $salesManager->id)
+            ->where('referred_user_id', '!=', $salesManager->id)
+            ->pluck('referred_user_id');
+
+        OrganizationNode::query()
+            ->whereIn('user_id', $referredIds)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->get()
+            ->each(function (OrganizationNode $node) use ($salesNode) {
+                if ((int) $node->parent_node_id !== (int) $salesNode->id) {
+                    $this->tree->reparent($node, $salesNode);
+                }
+            });
     }
 
     private function defaults(): array

@@ -133,6 +133,63 @@ class GatewaySaleService
         });
     }
 
+    public function updateParties(GatewaySale $sale, array $payload): GatewaySale
+    {
+        return DB::transaction(function () use ($sale, $payload) {
+            if (array_key_exists('representatives', $payload) && is_array($payload['representatives'])) {
+                $reps = $payload['representatives'];
+                $this->distributor->assertShares($reps);
+                $sale->representatives()->delete();
+                foreach ($reps as $rep) {
+                    $sale->representatives()->create([
+                        'user_id' => $rep['user_id'],
+                        'share_percent' => $rep['share_percent'],
+                        'sales_points' => Money::percentOf((string) $sale->full_sales_points, (string) $rep['share_percent']),
+                    ]);
+                }
+                $sale->referrers()->delete();
+                foreach ($this->resolveReferrers($reps) as $ref) {
+                    $sale->referrers()->create($ref);
+                }
+            }
+
+            if (array_key_exists('managers', $payload) && is_array($payload['managers'])) {
+                $sale->managers()->delete();
+                foreach ($payload['managers'] as $manager) {
+                    $role = Role::query()->where('slug', $manager['role_slug'] ?? '')->first()
+                        ?? Role::query()->find($manager['role_id'] ?? 0);
+                    if (! $role || ! in_array($role->slug, ['sales_manager', 'development_manager', 'senior_manager'], true)) {
+                        continue;
+                    }
+                    $sale->managers()->create([
+                        'user_id' => $manager['user_id'],
+                        'role_id' => $role->id,
+                        'commission_percent' => $manager['commission_percent'] ?? 0,
+                    ]);
+                }
+            } elseif (array_key_exists('representatives', $payload)) {
+                $firstRep = $sale->representatives()->first();
+                if ($firstRep) {
+                    $sale->managers()->delete();
+                    foreach ($this->resolveManagers($firstRep->user_id) as $manager) {
+                        $sale->managers()->create($manager);
+                    }
+                }
+            }
+
+            return $sale->fresh([
+                'gateway',
+                'customer',
+                'representatives.user',
+                'referrers.user',
+                'managers.user',
+                'managers.role',
+                'reviews.actor',
+                'commissions.role',
+            ]);
+        });
+    }
+
     private function resolveRepresentatives(array $payload): array
     {
         if (! empty($payload['shared_link_id'])) {

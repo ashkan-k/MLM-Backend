@@ -58,8 +58,20 @@ class AuthController extends Controller
             'mobile' => ['required', 'string', 'unique:users,mobile'],
             'email' => ['nullable', 'email', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'],
-            'referral_code' => ['nullable', 'string'],
+            'referral_code' => ['required', 'string'],
+        ], [
+            'referral_code.required' => 'ثبت‌نام فقط از طریق لینک معرف امکان‌پذیر است.',
         ]);
+
+        $ref = ReferralCode::query()
+            ->where('code', $data['referral_code'])
+            ->where('is_active', true)
+            ->first();
+        if (! $ref) {
+            throw ValidationException::withMessages([
+                'referral_code' => ['کد معرف نامعتبر یا غیرفعال است. از لینک معرفی نماینده استفاده کنید.'],
+            ]);
+        }
 
         $user = User::query()->create([
             'name' => $data['name'],
@@ -86,30 +98,25 @@ class AuthController extends Controller
             'is_active' => true,
         ]);
 
-        $parent = null;
-        if (! empty($data['referral_code'])) {
-            $ref = ReferralCode::query()->where('code', $data['referral_code'])->where('is_active', true)->first();
-            if ($ref) {
-                RepresentativeReferral::query()->create([
-                    'referred_user_id' => $user->id,
-                    'referrer_user_id' => $ref->user_id,
-                    'source' => 'finopal',
-                    'referral_code_id' => $ref->id,
-                ]);
-                $parent = $tree->activeNodesFor($ref->user)->first();
-                $referrerRole = Role::query()->where('slug', 'representative_referrer')->first();
-                if ($referrerRole && ! $ref->user->hasRole('representative_referrer')) {
-                    UserRole::query()->create([
-                        'user_id' => $ref->user_id,
-                        'role_id' => $referrerRole->id,
-                        'effective_from' => now()->toDateString(),
-                        'is_active' => true,
-                    ]);
-                    $wallets->walletFor($ref->user, $referrerRole);
-                }
-            }
+        RepresentativeReferral::query()->create([
+            'referred_user_id' => $user->id,
+            'referrer_user_id' => $ref->user_id,
+            'source' => 'finopal',
+            'referral_code_id' => $ref->id,
+        ]);
+
+        $referrerRole = Role::query()->where('slug', 'representative_referrer')->first();
+        if ($referrerRole && ! $ref->user->hasRole('representative_referrer')) {
+            UserRole::query()->create([
+                'user_id' => $ref->user_id,
+                'role_id' => $referrerRole->id,
+                'effective_from' => now()->toDateString(),
+                'is_active' => true,
+            ]);
+            $wallets->walletFor($ref->user, $referrerRole);
         }
 
+        $parent = $tree->registrationParentFor($ref->user);
         $tree->attach($user, $repRole, $parent, now()->toDateString());
         [, $plain] = $user->createApiToken($repRole->id);
 

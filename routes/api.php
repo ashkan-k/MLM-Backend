@@ -43,6 +43,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::post('/gateway-sales', [GatewayController::class, 'store']);
         Route::get('/gateway-sales/{sale}', [GatewayController::class, 'show']);
         Route::post('/gateway-sales/{sale}/inspect', [GatewayController::class, 'inspect']);
+        Route::post('/gateway-sales/{sale}/parties', [GatewayController::class, 'updateParties']);
         Route::get('/commissions', [GatewayController::class, 'commissions']);
 
         Route::get('/referrals/codes', [ReferralController::class, 'codes']);
@@ -86,6 +87,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/users/{user}/gateway-shares', [BenefitTransferController::class, 'shares']);
         Route::post('/users/{user}/block', [OrganizationController::class, 'block']);
         Route::post('/users/{user}/unblock', [OrganizationController::class, 'unblock']);
+        Route::post('/organization/reassign-manager', [OrganizationController::class, 'reassignManager']);
 
         Route::middleware(['course.manager'])->prefix('manage')->group(function () {
             Route::get('/roles', [SuperuserController::class, 'organizationalRoles']);
