@@ -71,7 +71,7 @@ class GatewaySaleService
                 [
                     'name' => $payload['name'] ?? $payload['external_id'],
                     'source' => $payload['source'] ?? 'finopal',
-                    'sale_amount' => $payload['amount'],
+                    'sale_amount' => $payload['amount'] ?? 0,
                     'merchant_code' => $payload['merchant_code'] ?? null,
                     'is_active' => true,
                     'metadata' => [
@@ -88,7 +88,7 @@ class GatewaySaleService
                 'gateway_id' => $gateway->id,
                 'customer_id' => $customer?->id,
                 'shared_link_id' => $payload['shared_link_id'] ?? null,
-                'amount' => $payload['amount'],
+                'amount' => $payload['amount'] ?? 0,
                 'full_sales_points' => config('finopal.full_sale_points'),
                 'status' => $status,
                 'sold_at' => $payload['sold_at'] ?? now(),

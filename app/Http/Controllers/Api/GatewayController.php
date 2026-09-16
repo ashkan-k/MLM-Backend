@@ -29,6 +29,7 @@ class GatewayController extends Controller
     public function sales(Request $request)
     {
         $user = $request->user();
+        $role = $request->attributes->get('active_role');
         $query = GatewaySale::query()->with([
             'gateway.transactions' => fn ($q) => $q->latest('id')->limit(8),
             'customer',
@@ -48,7 +49,29 @@ class GatewayController extends Controller
             });
         }
 
-        return response()->json($query->latest('sold_at')->paginate(20));
+        $sales = $query->latest('sold_at')->paginate(
+            min(100, max(1, (int) $request->input('per_page', 20)))
+        );
+        $saleIds = $sales->getCollection()->pluck('id');
+
+        $totals = Commission::query()
+            ->where('user_id', $user->id)
+            ->when($role && ! $user->isSuperuser(), fn ($q) => $q->where('role_id', $role->id))
+            ->whereIn('gateway_sale_id', $saleIds)
+            ->selectRaw('gateway_sale_id, SUM(commission_amount) as total')
+            ->groupBy('gateway_sale_id')
+            ->pluck('total', 'gateway_sale_id');
+
+        $sales->getCollection()->transform(function (GatewaySale $sale) use ($totals) {
+            $sale->setAttribute(
+                'my_commission_total',
+                number_format((float) ($totals[$sale->id] ?? 0), 3, '.', '')
+            );
+
+            return $sale;
+        });
+
+        return response()->json($sales);
     }
 
     public function store(Request $request, GatewaySaleService $sales, PermissionService $permissions)
@@ -62,7 +85,7 @@ class GatewayController extends Controller
         $data = $request->validate([
             'external_id' => ['required', 'string'],
             'name' => ['required', 'string'],
-            'amount' => ['required', 'numeric', 'min:0'],
+            'amount' => ['nullable', 'numeric', 'min:0'],
             'source' => ['nullable', 'string'],
             'ownership_type' => ['nullable', 'in:solo,shared,referral'],
             'representative_user_id' => ['nullable', 'exists:users,id'],
@@ -164,12 +187,23 @@ class GatewayController extends Controller
         $user = $request->user();
         $role = $request->attributes->get('active_role');
 
+        $data = $request->validate([
+            'gateway_id' => ['nullable', 'integer', 'exists:gateways,id'],
+            'gateway_sale_id' => ['nullable', 'integer', 'exists:gateway_sales,id'],
+        ]);
+
         $query = Commission::query()->with(['role', 'sale.gateway']);
         if (! $user->isSuperuser()) {
             $query->where('user_id', $user->id);
             if ($role) {
                 $query->where('role_id', $role->id);
             }
+        }
+
+        if (! empty($data['gateway_sale_id'])) {
+            $query->where('gateway_sale_id', $data['gateway_sale_id']);
+        } elseif (! empty($data['gateway_id'])) {
+            $query->whereHas('sale', fn ($q) => $q->where('gateway_id', $data['gateway_id']));
         }
 
         return response()->json($query->latest()->paginate(20));

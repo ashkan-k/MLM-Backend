@@ -4,6 +4,7 @@ namespace App\Services\Report;
 
 use App\Models\BenefitTransfer;
 use App\Models\Commission;
+use App\Models\FinopalTransaction;
 use App\Models\GatewaySale;
 use App\Models\Message;
 use App\Models\PromotionRequest;
@@ -40,6 +41,8 @@ class SuperuserReportService
 
         $salesRows = (clone $sales)->get();
         $commissionRows = (clone $commissions)->with(['user:id,name,mobile', 'role:id,name,slug'])->get();
+        $profitTotal = (float) $this->profitQuery($from, $to, $userIds)->sum('profit');
+        $profitRows = $this->profitQuery($from, $to, $userIds)->get(['id', 'profit', 'processed_at', 'created_at', 'paid_at']);
 
         return [
             'filters' => [
@@ -53,7 +56,7 @@ class SuperuserReportService
             'summary' => [
                 ['key' => 'users', 'label' => 'کاربران در محدوده', 'value' => $userIds === null ? User::query()->count() : count($userIds)],
                 ['key' => 'sales_count', 'label' => 'تعداد فروش درگاه', 'value' => $salesRows->count()],
-                ['key' => 'sales_amount', 'label' => 'مبلغ فروش (تومان)', 'value' => (float) $salesRows->sum('amount'), 'money' => true],
+                ['key' => 'sales_amount', 'label' => 'جمع سود تراکنش‌ها (تومان)', 'value' => $profitTotal, 'money' => true],
                 ['key' => 'commission_count', 'label' => 'تعداد پورسانت', 'value' => $commissionRows->count()],
                 ['key' => 'commission_amount', 'label' => 'جمع پورسانت (تومان)', 'value' => (float) $commissionRows->sum('commission_amount'), 'money' => true],
                 ['key' => 'withdrawals', 'label' => 'درخواست برداشت', 'value' => (clone $withdrawals)->count()],
@@ -62,14 +65,22 @@ class SuperuserReportService
                 ['key' => 'messages', 'label' => 'پیام گفتگو', 'value' => (clone $messages)->count()],
             ],
             'operations' => [
-                ['key' => 'sales', 'label' => 'فروش درگاه', 'count' => $salesRows->count(), 'amount' => (float) $salesRows->sum('amount')],
+                ['key' => 'sales', 'label' => 'فروش درگاه', 'count' => $salesRows->count(), 'amount' => $profitTotal],
                 ['key' => 'commissions', 'label' => 'ثبت پورسانت', 'count' => $commissionRows->count(), 'amount' => (float) $commissionRows->sum('commission_amount')],
                 ['key' => 'withdrawals', 'label' => 'برداشت', 'count' => (clone $withdrawals)->count(), 'amount' => (float) (clone $withdrawals)->sum('amount')],
                 ['key' => 'promotions', 'label' => 'ارتقاء', 'count' => (clone $promotions)->count(), 'amount' => 0],
                 ['key' => 'transfers', 'label' => 'انتقال مزایا', 'count' => (clone $transfers)->count(), 'amount' => 0],
                 ['key' => 'messages', 'label' => 'گفتگو', 'count' => (clone $messages)->count(), 'amount' => 0],
             ],
-            'sales_over_time' => $this->groupByDay($salesRows, 'sold_at', 'amount'),
+            'sales_over_time' => $this->groupByDay(
+                $profitRows->map(function (FinopalTransaction $tx) {
+                    $tx->setAttribute('chart_at', $tx->processed_at ?? $tx->paid_at ?? $tx->created_at);
+
+                    return $tx;
+                }),
+                'chart_at',
+                'profit'
+            ),
             'commissions_over_time' => $this->groupByDay($commissionRows, 'created_at', 'commission_amount'),
             'commissions_by_role' => $this->groupNamed($commissionRows, fn (Commission $row) => $row->role?->name ?? 'بدون نقش', 'commission_amount'),
             'commissions_by_user' => $commissionRows
@@ -153,6 +164,26 @@ class SuperuserReportService
         if ($userIds !== null) {
             $query->where(function ($q) use ($userIds) {
                 $q->whereHas('representatives', fn ($r) => $r->whereIn('user_id', $userIds))
+                    ->orWhereHas('commissions', fn ($c) => $c->whereIn('user_id', $userIds));
+            });
+        }
+
+        return $query;
+    }
+
+    private function profitQuery(Carbon $from, Carbon $to, ?array $userIds)
+    {
+        $query = FinopalTransaction::query()
+            ->where(function ($q) use ($from, $to) {
+                $q->whereBetween('processed_at', [$from, $to])
+                    ->orWhere(function ($inner) use ($from, $to) {
+                        $inner->whereNull('processed_at')->whereBetween('created_at', [$from, $to]);
+                    });
+            });
+
+        if ($userIds !== null) {
+            $query->whereHas('sale', function ($sale) use ($userIds) {
+                $sale->whereHas('representatives', fn ($r) => $r->whereIn('user_id', $userIds))
                     ->orWhereHas('commissions', fn ($c) => $c->whereIn('user_id', $userIds));
             });
         }
