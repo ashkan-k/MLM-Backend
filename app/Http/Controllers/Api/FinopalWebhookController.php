@@ -43,6 +43,23 @@ class FinopalWebhookController extends Controller
             'idempotency_key' => ['nullable', 'string', 'max:190'],
             'payer' => ['nullable', 'array'],
             'metadata' => ['nullable', 'array'],
+        ], [], [
+            'merchant_id' => 'کد مرچنت (merchant_id)',
+            'merchant_code' => 'کد مرچنت (merchant_code)',
+            'amount' => 'مبلغ تراکنش',
+            'profit' => 'سود درگاه',
+            'gateway_profit' => 'سود درگاه',
+            'currency' => 'واحد پول',
+            'authority' => 'شناسه authority',
+            'ref_id' => 'شماره پیگیری',
+            'order_id' => 'شماره سفارش',
+            'event' => 'رویداد',
+            'status' => 'وضعیت',
+            'code' => 'کد نتیجه',
+            'paid_at' => 'زمان پرداخت',
+            'idempotency_key' => 'کلید یکتایی',
+            'payer' => 'اطلاعات پرداخت‌کننده',
+            'metadata' => 'متادیتا',
         ]);
 
         try {
@@ -53,10 +70,15 @@ class FinopalWebhookController extends Controller
             return response()->json(['message' => $e->getMessage()], $status);
         }
 
+        $duplicate = (bool) $tx->getAttribute('was_duplicate');
+
         return response()->json([
             'success' => true,
+            'message' => $duplicate
+                ? 'این تراکنش قبلاً دریافت شده است (تکراری).'
+                : 'تراکنش با موفقیت ثبت شد.',
             'id' => $tx->id,
-            'duplicate' => (bool) $tx->getAttribute('was_duplicate'),
+            'duplicate' => $duplicate,
             'status' => $tx->status,
             'amount' => $tx->amount,
             'profit' => $tx->profit,

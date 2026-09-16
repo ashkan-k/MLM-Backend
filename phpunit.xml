@@ -18,7 +18,9 @@
         </include>
     </source>
     <php>
-        <env name="APP_ENV" value="testing"/>
+        <env name="APP_LOCALE" value="fa"/>
+        <env name="APP_FALLBACK_LOCALE" value="fa"/>
+        <env name="APP_FAKER_LOCALE" value="fa_IR"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

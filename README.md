@@ -37,6 +37,9 @@ node realtime/ws-server.mjs
 | `php artisan migrate` | Apply new migrations |
 | `php artisan migrate:fresh --seed` | Wipe DB, seed demo users/sales, import geo |
 | `php artisan db:seed --class=DemoReviewSeeder` | Extra review data (promotions, wallets, gateway queues) without wiping |
+| `php artisan finopal:seed-webhook-demo` | Import/update Finopal webhook test gateway (full org tree, no migrate:fresh) |
+| `php artisan finopal:seed-webhook-demo --with-transaction` | Same + one sample transaction and commission split |
+| `php artisan finopal:seed-webhook-demo --reset` | Clear demo transactions/commissions for that merchant |
 | `php artisan geo:import` | Import/normalize Iranian provinces & cities from `database/data/iran-geo.json` |
 | `php artisan geo:import --from-shop-maker` | Pull `states`/`cities` from MySQL `shop_maker` and rewrite the JSON |
 | `php artisan geo:import --path=FILE` | Import a specific JSON file |
