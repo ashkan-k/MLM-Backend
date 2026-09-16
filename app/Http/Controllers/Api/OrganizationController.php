@@ -218,6 +218,10 @@ class OrganizationController extends Controller
                 $node = $tree->attach($appoint, $role, $parentNode, now()->toDateString());
             }
 
+            if ($roleSlug === 'sales_manager') {
+                $tree->rehomeUnderNewSalesManager($appoint->fresh('roles'), $node);
+            }
+
             $audit->record($actor, 'organization.appoint_vacant', $node, null, $data);
 
             return $node;

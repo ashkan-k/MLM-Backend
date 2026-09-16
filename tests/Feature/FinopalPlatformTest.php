@@ -1047,26 +1047,35 @@ class FinopalPlatformTest extends TestCase
             'role_slug' => 'senior_manager',
         ])->assertOk();
 
-        $outsider = User::query()->where('mobile', '09127777777')->firstOrFail();
+        $referrer = User::query()->where('mobile', '09124444444')->firstOrFail();
+        $referred = User::query()->where('mobile', '09125555555')->firstOrFail();
         $dev = User::query()->where('mobile', '09122222222')->firstOrFail();
 
         $this->withToken($senior->json('token'))
             ->postJson('/api/organization/reassign-manager', [
                 'mode' => 'appoint',
-                'appoint_user_id' => $outsider->id,
+                'appoint_user_id' => $referrer->id,
                 'manager_user_id' => $dev->id,
                 'manager_role' => 'sales_manager',
             ])
             ->assertOk()
             ->assertJsonPath('mode', 'appoint');
 
-        $this->assertTrue($outsider->fresh()->hasRole('sales_manager'));
-        $node = \App\Models\OrganizationNode::query()
-            ->where('user_id', $outsider->id)
+        $this->assertTrue($referrer->fresh()->hasRole('sales_manager'));
+        $tree = app(\App\Services\Organization\OrganizationTreeService::class);
+        $smNode = $tree->activeNodesFor($referrer->fresh(), 'sales_manager')->firstOrFail();
+        $ownRep = \App\Models\OrganizationNode::query()
+            ->where('user_id', $referrer->id)
             ->where('is_active', true)
-            ->whereHas('role', fn ($q) => $q->where('slug', 'sales_manager'))
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
             ->firstOrFail();
-        $parent = app(\App\Services\Organization\OrganizationTreeService::class)->activeNodesFor($dev, 'development_manager')->firstOrFail();
-        $this->assertSame($parent->id, $node->parent_node_id);
+        $referredRep = \App\Models\OrganizationNode::query()
+            ->where('user_id', $referred->id)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->firstOrFail();
+
+        $this->assertSame($smNode->id, $ownRep->parent_node_id);
+        $this->assertSame($smNode->id, $referredRep->parent_node_id);
     }
 }

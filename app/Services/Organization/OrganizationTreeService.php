@@ -3,6 +3,7 @@
 namespace App\Services\Organization;
 
 use App\Models\OrganizationNode;
+use App\Models\RepresentativeReferral;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\UserRole;
@@ -188,6 +189,38 @@ class OrganizationTreeService
             'development' => $devNode,
             'sales' => $salesNode,
         ];
+    }
+
+    /**
+     * After someone becomes sales manager (promotion or vacant appoint):
+     * place their own representative node and all referred representatives under the new SM node.
+     */
+    public function rehomeUnderNewSalesManager(User $salesManager, OrganizationNode $salesNode): void
+    {
+        $ownRep = OrganizationNode::query()
+            ->where('user_id', $salesManager->id)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->first();
+        if ($ownRep && (int) $ownRep->parent_node_id !== (int) $salesNode->id) {
+            $this->reparent($ownRep, $salesNode);
+        }
+
+        $referredIds = RepresentativeReferral::query()
+            ->where('referrer_user_id', $salesManager->id)
+            ->where('referred_user_id', '!=', $salesManager->id)
+            ->pluck('referred_user_id');
+
+        OrganizationNode::query()
+            ->whereIn('user_id', $referredIds)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->get()
+            ->each(function (OrganizationNode $node) use ($salesNode) {
+                if ((int) $node->parent_node_id !== (int) $salesNode->id) {
+                    $this->reparent($node, $salesNode);
+                }
+            });
     }
 
     /** Parent node for a newly registered representative under their referrer. */
