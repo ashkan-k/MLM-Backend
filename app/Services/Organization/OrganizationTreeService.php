@@ -226,6 +226,11 @@ class OrganizationTreeService
     /** Parent node for a newly registered representative under their referrer. */
     public function registrationParentFor(User $referrer): ?OrganizationNode
     {
+        // Senior always recruits into their own default SM slot (empty-org chain).
+        if ($referrer->hasRole('senior_manager')) {
+            return $this->ensureSeniorManagerChain($referrer)['sales'];
+        }
+
         $sm = $this->activeNodesFor($referrer, 'sales_manager')->first();
         if ($sm) {
             return $sm;
@@ -255,29 +260,59 @@ class OrganizationTreeService
             ->first();
     }
 
+    /**
+     * Org chart for UI: each user appears once with their highest role.
+     * Hidden lower-role nodes still contribute children (bubbled up).
+     */
     public function tree(?int $rootId = null): array
     {
         $nodes = OrganizationNode::query()
-            ->with(['user:id,name,mobile,is_active', 'role:id,name,slug'])
+            ->with(['user:id,name,mobile,is_active', 'role:id,name,slug,hierarchy_level'])
             ->where('is_active', true)
             ->orderBy('id')
             ->get();
 
+        $bestLevelByUser = [];
+        foreach ($nodes as $node) {
+            $uid = (int) $node->user_id;
+            $level = (int) ($node->role?->hierarchy_level ?? 99);
+            if (! isset($bestLevelByUser[$uid]) || $level < $bestLevelByUser[$uid]) {
+                $bestLevelByUser[$uid] = $level;
+            }
+        }
+
+        $isVisible = function (OrganizationNode $node) use ($bestLevelByUser): bool {
+            $uid = (int) $node->user_id;
+            $level = (int) ($node->role?->hierarchy_level ?? 99);
+
+            return ($bestLevelByUser[$uid] ?? $level) === $level;
+        };
+
         $byParent = $nodes->groupBy(fn ($n) => $n->parent_node_id ?: 0);
 
-        $build = function ($parentId) use (&$build, $byParent) {
-            return ($byParent[$parentId] ?? collect())->map(function ($node) use ($build) {
+        $build = function ($parentId) use (&$build, $byParent, $isVisible) {
+            $out = [];
+            foreach ($byParent[$parentId] ?? collect() as $node) {
+                if (! $isVisible($node)) {
+                    foreach ($build($node->id) as $child) {
+                        $out[] = $child;
+                    }
+
+                    continue;
+                }
+
                 $children = $build($node->id);
                 $descendantCount = collect($children)->sum(fn ($child) => 1 + ($child['descendant_count'] ?? 0));
-
-                return [
+                $out[] = [
                     'id' => $node->id,
                     'user' => $node->user,
                     'role' => $node->role,
                     'descendant_count' => $descendantCount,
                     'children' => $children,
                 ];
-            })->values()->all();
+            }
+
+            return $out;
         };
 
         if ($rootId) {
@@ -285,6 +320,7 @@ class OrganizationTreeService
             if (! $root) {
                 return [];
             }
+            // If this root is a lower-role duplicate, still show it as the scoped root.
             $children = $build($root->id);
 
             return [[

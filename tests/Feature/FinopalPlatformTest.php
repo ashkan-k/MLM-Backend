@@ -1078,4 +1078,34 @@ class FinopalPlatformTest extends TestCase
         $this->assertSame($smNode->id, $ownRep->parent_node_id);
         $this->assertSame($smNode->id, $referredRep->parent_node_id);
     }
+
+    public function test_senior_referral_places_rep_under_senior_sales_slot(): void
+    {
+        $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
+        $code = \App\Models\ReferralCode::query()->where('user_id', $senior->id)->value('code');
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'زیرمجموعه ارشد',
+            'mobile' => '09129990077',
+            'password' => 'Password123!',
+            'referral_code' => $code,
+        ])->assertCreated();
+
+        $newbie = User::query()->where('mobile', '09129990077')->firstOrFail();
+        $tree = app(\App\Services\Organization\OrganizationTreeService::class);
+        $seniorSm = $tree->ensureSeniorManagerChain($senior)['sales'];
+        $repNode = \App\Models\OrganizationNode::query()
+            ->where('user_id', $newbie->id)
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->firstOrFail();
+
+        $this->assertSame($seniorSm->id, $repNode->parent_node_id);
+
+        $chart = $tree->tree();
+        $json = json_encode($chart, JSON_UNESCAPED_UNICODE);
+        // Chart shows each person once; senior appears as senior_manager, newbie under that branch.
+        $this->assertSame(1, substr_count($json, '09121111111'));
+        $this->assertStringContainsString('09129990077', $json);
+    }
 }
