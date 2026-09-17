@@ -164,10 +164,13 @@ class SuperuserController extends Controller
             'name' => ['required', 'string'],
             'mobile' => ['required', 'unique:users,mobile'],
             'email' => ['nullable', 'email', 'unique:users,email'],
-            'password' => ['required', 'min:8'],
+            'password' => ['required', 'min:8', 'confirmed'],
+            'password_confirmation' => ['required', 'min:8'],
             'is_active' => ['nullable', 'boolean'],
             'role_slugs' => ['required', 'array', 'min:1'],
             'avatar' => ['nullable', 'image', 'max:4096'],
+        ], [
+            'password.confirmed' => 'رمز عبور و تکرار آن یکسان نیستند.',
         ]);
 
         $user = User::query()->create([
@@ -191,10 +194,13 @@ class SuperuserController extends Controller
             'name' => ['required', 'string'],
             'mobile' => ['required', Rule::unique('users', 'mobile')->ignore($user->id)],
             'email' => ['nullable', 'email', Rule::unique('users', 'email')->ignore($user->id)],
-            'password' => ['nullable', 'min:8'],
+            'password' => ['nullable', 'min:8', 'confirmed'],
+            'password_confirmation' => ['nullable', 'min:8'],
             'is_active' => ['nullable', 'boolean'],
             'role_slugs' => ['nullable', 'array', 'min:1'],
             'avatar' => ['nullable', 'image', 'max:4096'],
+        ], [
+            'password.confirmed' => 'رمز عبور و تکرار آن یکسان نیستند.',
         ]);
 
         $old = $user->only(['name', 'mobile', 'email', 'is_active']);

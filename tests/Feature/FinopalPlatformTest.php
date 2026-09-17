@@ -24,6 +24,18 @@ class FinopalPlatformTest extends TestCase
 {
     use RefreshDatabase;
 
+    private function gatewayDocs(): array
+    {
+        return [
+            'documents' => [
+                'national_id_front' => UploadedFile::fake()->image('front.jpg'),
+                'national_id_back' => UploadedFile::fake()->image('back.jpg'),
+                'birth_certificate' => UploadedFile::fake()->image('id.jpg'),
+                'selfie' => UploadedFile::fake()->image('selfie.jpg'),
+            ],
+        ];
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -570,7 +582,7 @@ class FinopalPlatformTest extends TestCase
             'role_slug' => 'representative',
         ])->json('token');
 
-        $created = $this->withToken($token)->postJson('/api/gateway-sales', [
+        $created = $this->withToken($token)->post('/api/gateway-sales', [
             'external_id' => 'GW-KYC-1',
             'name' => 'فروشگاه تست',
             'amount' => 1500000,
@@ -583,6 +595,7 @@ class FinopalPlatformTest extends TestCase
                 'province' => 'تهران',
                 'city' => 'تهران',
             ],
+            ...$this->gatewayDocs(),
         ])->assertCreated()->assertJsonPath('customer.national_id', '0012345678')
             ->assertJsonPath('status', 'pending_inspection');
 
@@ -601,7 +614,7 @@ class FinopalPlatformTest extends TestCase
             'role_slug' => 'representative',
         ])->json('token');
 
-        $saleId = $this->withToken($repToken)->postJson('/api/gateway-sales', [
+        $saleId = $this->withToken($repToken)->post('/api/gateway-sales', [
             'external_id' => 'GW-REVIEW-1',
             'name' => 'فروشگاه بازرسی',
             'amount' => 1600000,
@@ -614,6 +627,7 @@ class FinopalPlatformTest extends TestCase
                 'city' => 'قزوین',
                 'birth_place' => 'قزوین — قزوین',
             ],
+            ...$this->gatewayDocs(),
         ])->assertCreated()->json('id');
 
         $this->assertSame(0, Commission::query()->where('gateway_sale_id', $saleId)->count());
@@ -940,6 +954,7 @@ class FinopalPlatformTest extends TestCase
             'name' => 'بدون معرف',
             'mobile' => '09129990001',
             'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
         ])->assertStatus(422)->assertJsonValidationErrors(['referral_code']);
 
         $code = \App\Models\ReferralCode::query()->where('user_id', User::query()->where('mobile', '09124444444')->value('id'))->value('code');
@@ -948,6 +963,7 @@ class FinopalPlatformTest extends TestCase
             'name' => 'با معرف',
             'mobile' => '09129990002',
             'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
             'referral_code' => $code,
         ])->assertCreated();
     }
@@ -1088,6 +1104,7 @@ class FinopalPlatformTest extends TestCase
             'name' => 'زیرمجموعه ارشد',
             'mobile' => '09129990077',
             'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
             'referral_code' => $code,
         ])->assertCreated();
 
@@ -1149,6 +1166,7 @@ class FinopalPlatformTest extends TestCase
             'name' => 'مشتری مشترک',
             'mobile' => '09129990101',
             'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
             'shared_link_token' => $token,
         ])->assertCreated();
 

@@ -77,10 +77,12 @@ class GatewayController extends Controller
     public function store(Request $request, GatewaySaleService $sales, PermissionService $permissions)
     {
         $user = $request->user();
-        $role = $request->attributes->get('active_role');
-        if (! $user->isSuperuser()) {
-            $permissions->authorize($user, 'representative.gateway.create', $role);
+        if (! $user->isSuperuser() && ! $permissions->can($user, 'representative.gateway.create') && ! $permissions->can($user, 'superuser.gateway.create')) {
+            abort(403, 'برای ثبت درگاه باید نقش نماینده فعال باشد یا دسترسی ثبت درگاه داشته باشید.');
         }
+
+        $personType = $request->input('customer.person_type', 'individual');
+        $isLegal = $personType === 'legal';
 
         $data = $request->validate([
             'external_id' => ['required', 'string'],
@@ -102,29 +104,59 @@ class GatewayController extends Controller
             'customer.birth_certificate_no' => ['nullable', 'string'],
             'customer.birth_place' => ['nullable', 'string'],
             'customer.gender' => ['nullable', 'string'],
-            'customer.province' => ['nullable', 'string'],
-            'customer.city' => ['nullable', 'string'],
-            'customer.address' => ['nullable', 'string'],
-            'customer.postal_code' => ['nullable', 'string'],
+            'customer.province' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'customer.city' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'customer.address' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'customer.postal_code' => [$isLegal ? 'required' : 'nullable', 'string'],
             'customer.bank_name' => ['nullable', 'string'],
             'customer.account_number' => ['nullable', 'string'],
             'customer.account_holder' => ['nullable', 'string'],
-            'customer.shop_name' => ['nullable', 'string'],
-            'customer.shop_category' => ['nullable', 'string'],
+            'customer.shop_name' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'customer.shop_category' => [$isLegal ? 'required' : 'nullable', 'string'],
             'customer.website' => ['nullable', 'string'],
-            'customer.company_name' => ['nullable', 'string'],
-            'customer.registration_no' => ['nullable', 'string'],
-            'customer.economic_code' => ['nullable', 'string'],
-            'customer.legal_national_id' => ['nullable', 'string'],
-            'documents.national_id_front' => ['nullable', 'file', 'max:5120'],
-            'documents.national_id_back' => ['nullable', 'file', 'max:5120'],
-            'documents.birth_certificate' => ['nullable', 'file', 'max:5120'],
-            'documents.selfie' => ['nullable', 'file', 'max:5120'],
-            'documents.gazette' => ['nullable', 'file', 'max:5120'],
-            'documents.license' => ['nullable', 'file', 'max:5120'],
+            'customer.company_name' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'customer.registration_no' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'customer.economic_code' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'customer.legal_national_id' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'documents.national_id_front' => ['required', 'file', 'max:5120'],
+            'documents.national_id_back' => ['required', 'file', 'max:5120'],
+            'documents.birth_certificate' => ['required', 'file', 'max:5120'],
+            'documents.selfie' => ['required', 'file', 'max:5120'],
+            'documents.gazette' => [$isLegal ? 'required' : 'nullable', 'file', 'max:5120'],
+            'documents.license' => [$isLegal ? 'required' : 'nullable', 'file', 'max:5120'],
             'idempotency_key' => ['nullable', 'string'],
             'sold_at' => ['nullable', 'date'],
+        ], [
+            'customer.province.required' => 'برای شخص حقوقی، استان الزامی است.',
+            'customer.city.required' => 'برای شخص حقوقی، شهر الزامی است.',
+            'customer.address.required' => 'برای شخص حقوقی، نشانی کامل الزامی است.',
+            'customer.postal_code.required' => 'برای شخص حقوقی، کد پستی الزامی است.',
+            'customer.shop_name.required' => 'برای شخص حقوقی، نام فروشگاه الزامی است.',
+            'customer.shop_category.required' => 'برای شخص حقوقی، صنف/دسته الزامی است.',
+            'customer.company_name.required' => 'نام شرکت الزامی است.',
+            'customer.registration_no.required' => 'شماره ثبت شرکت الزامی است.',
+            'customer.economic_code.required' => 'شناسه اقتصادی الزامی است.',
+            'customer.legal_national_id.required' => 'شناسه ملی شرکت الزامی است.',
+            'documents.national_id_front.required' => 'تصویر روی کارت ملی الزامی است.',
+            'documents.national_id_back.required' => 'تصویر پشت کارت ملی الزامی است.',
+            'documents.birth_certificate.required' => 'تصویر شناسنامه الزامی است.',
+            'documents.selfie.required' => 'سلفی احراز هویت الزامی است.',
+            'documents.gazette.required' => 'روزنامه رسمی / آگهی تأسیس برای شخص حقوقی الزامی است.',
+            'documents.license.required' => 'مجوز یا پروانه کسب برای شخص حقوقی الزامی است.',
         ]);
+
+        if (! empty($data['shared_link_id'])) {
+            $isMember = \App\Models\SharedLink::query()
+                ->where('id', $data['shared_link_id'])
+                ->where(function ($q) use ($user) {
+                    $q->where('creator_user_id', $user->id)
+                        ->orWhereHas('members', fn ($m) => $m->where('user_id', $user->id));
+                })
+                ->exists();
+            if (! $user->isSuperuser() && ! $isMember) {
+                abort(403, 'فقط اعضای لینک اشتراکی می‌توانند با آن درگاه ثبت کنند.');
+            }
+        }
 
         $docs = [];
         foreach (['national_id_front', 'national_id_back', 'birth_certificate', 'selfie', 'gazette', 'license'] as $key) {

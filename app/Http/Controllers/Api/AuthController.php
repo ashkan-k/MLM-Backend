@@ -62,10 +62,12 @@ class AuthController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'mobile' => ['required', 'string', 'unique:users,mobile'],
             'email' => ['nullable', 'email', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password_confirmation' => ['required', 'string', 'min:8'],
             'referral_code' => ['nullable', 'string', 'required_without:shared_link_token'],
             'shared_link_token' => ['nullable', 'string', 'required_without:referral_code'],
         ], [
+            'password.confirmed' => 'رمز عبور و تکرار آن یکسان نیستند.',
             'referral_code.required_without' => 'ثبت‌نام فقط از طریق لینک معرف یا لینک اشتراکی امکان‌پذیر است.',
             'shared_link_token.required_without' => 'ثبت‌نام فقط از طریق لینک معرف یا لینک اشتراکی امکان‌پذیر است.',
         ]);

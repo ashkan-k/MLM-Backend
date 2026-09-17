@@ -61,11 +61,6 @@ class ReferralController extends Controller
             'pending_approvals' => $link->status === 'pending',
             'feature_enabled' => $featureOn,
             'usable' => $usable,
-            'members' => $link->members->map(fn ($m) => [
-                'name' => $m->user?->name,
-                'share_percent' => $m->share_percent,
-                'approved' => (bool) $m->approved,
-            ])->values(),
         ]);
     }
 
