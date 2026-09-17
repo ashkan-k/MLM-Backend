@@ -226,6 +226,29 @@ class OrganizationTreeService
             });
     }
 
+    /**
+     * After promotion to a higher org role (e.g. SM→DM): nest this user's lower-role nodes
+     * under the new higher node so the downline stays with them (not bubbled to senior).
+     */
+    public function nestLowerRoleNodesUnder(User $user, OrganizationNode $higherNode): void
+    {
+        $higherNode->loadMissing('role');
+        $higherLevel = (int) ($higherNode->role?->hierarchy_level ?? 0);
+
+        OrganizationNode::query()
+            ->with('role')
+            ->where('user_id', $user->id)
+            ->where('is_active', true)
+            ->where('id', '!=', $higherNode->id)
+            ->get()
+            ->filter(fn (OrganizationNode $node) => (int) ($node->role?->hierarchy_level ?? 99) > $higherLevel)
+            ->each(function (OrganizationNode $node) use ($higherNode) {
+                if ((int) $node->parent_node_id !== (int) $higherNode->id) {
+                    $this->reparent($node, $higherNode);
+                }
+            });
+    }
+
     /** Parent node for a newly registered representative under their referrer. */
     public function registrationParentFor(User $referrer): ?OrganizationNode
     {
@@ -265,7 +288,8 @@ class OrganizationTreeService
 
     /**
      * Org chart for UI: each user appears once with their highest role.
-     * Hidden lower-role nodes still contribute children (bubbled up).
+     * Children of a hidden lower-role node attach under that user's visible node
+     * (not under the hidden node's parent / senior).
      */
     public function tree(?int $rootId = null): array
     {
@@ -276,11 +300,13 @@ class OrganizationTreeService
             ->get();
 
         $bestLevelByUser = [];
+        $visibleIdByUser = [];
         foreach ($nodes as $node) {
             $uid = (int) $node->user_id;
             $level = (int) ($node->role?->hierarchy_level ?? 99);
             if (! isset($bestLevelByUser[$uid]) || $level < $bestLevelByUser[$uid]) {
                 $bestLevelByUser[$uid] = $level;
+                $visibleIdByUser[$uid] = (int) $node->id;
             }
         }
 
@@ -291,16 +317,30 @@ class OrganizationTreeService
             return ($bestLevelByUser[$uid] ?? $level) === $level;
         };
 
-        $byParent = $nodes->groupBy(fn ($n) => $n->parent_node_id ?: 0);
+        $nodesById = $nodes->keyBy('id');
+
+        $effectiveParentId = function (OrganizationNode $node) use ($nodesById, $isVisible, $visibleIdByUser): int {
+            $pid = (int) ($node->parent_node_id ?: 0);
+            if ($pid === 0) {
+                return 0;
+            }
+            $parent = $nodesById->get($pid);
+            if (! $parent) {
+                return 0;
+            }
+            if (! $isVisible($parent)) {
+                return (int) ($visibleIdByUser[(int) $parent->user_id] ?? $pid);
+            }
+
+            return $pid;
+        };
+
+        $byParent = $nodes->groupBy(fn (OrganizationNode $n) => $effectiveParentId($n));
 
         $build = function ($parentId) use (&$build, $byParent, $isVisible) {
             $out = [];
             foreach ($byParent[$parentId] ?? collect() as $node) {
                 if (! $isVisible($node)) {
-                    foreach ($build($node->id) as $child) {
-                        $out[] = $child;
-                    }
-
                     continue;
                 }
 
@@ -323,13 +363,15 @@ class OrganizationTreeService
             if (! $root) {
                 return [];
             }
-            // If this root is a lower-role duplicate, still show it as the scoped root.
-            $children = $build($root->id);
+            $rootUid = (int) $root->user_id;
+            $visibleRootId = $visibleIdByUser[$rootUid] ?? (int) $root->id;
+            $visibleRoot = $nodesById->get($visibleRootId) ?? $root;
+            $children = $build($visibleRoot->id);
 
             return [[
-                'id' => $root->id,
-                'user' => $root->user,
-                'role' => $root->role,
+                'id' => $visibleRoot->id,
+                'user' => $visibleRoot->user,
+                'role' => $visibleRoot->role,
                 'descendant_count' => collect($children)->sum(fn ($child) => 1 + ($child['descendant_count'] ?? 0)),
                 'children' => $children,
             ]];

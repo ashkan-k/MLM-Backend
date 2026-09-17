@@ -220,6 +220,8 @@ class OrganizationController extends Controller
 
             if ($roleSlug === 'sales_manager') {
                 $tree->rehomeUnderNewSalesManager($appoint->fresh('roles'), $node);
+            } elseif (in_array($roleSlug, ['development_manager', 'senior_manager'], true)) {
+                $tree->nestLowerRoleNodesUnder($appoint->fresh('roles'), $node);
             }
 
             $audit->record($actor, 'organization.appoint_vacant', $node, null, $data);

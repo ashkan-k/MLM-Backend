@@ -184,7 +184,7 @@ class FinopalPlatformTest extends TestCase
         $role = Role::query()->where('slug', 'representative')->firstOrFail();
         $wallet = Wallet::query()->where('user_id', $rep->id)->where('role_id', $role->id)->firstOrFail();
 
-        $withdrawal = app(WithdrawalService::class)->request($rep, $wallet, '1000.000', 'wd-1');
+        $withdrawal = app(WithdrawalService::class)->request($rep, '1000.000', 'active_role', $wallet, $role, 'wd-1');
         $this->assertSame(WithdrawalRequest::SENIOR_MANAGER_PENDING, $withdrawal->status);
 
         $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
@@ -202,7 +202,7 @@ class FinopalPlatformTest extends TestCase
         $role = Role::query()->where('slug', 'representative')->firstOrFail();
         $wallet = Wallet::query()->where('user_id', $rep->id)->where('role_id', $role->id)->firstOrFail();
 
-        $withdrawal = app(WithdrawalService::class)->request($rep, $wallet, '800.000', 'wd-reopen-1');
+        $withdrawal = app(WithdrawalService::class)->request($rep, '800.000', 'active_role', $wallet, $role, 'wd-reopen-1');
         $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
         $withdrawal = app(WithdrawalService::class)->decide($senior, $withdrawal, 'rejected', 'not now');
         $this->assertSame(WithdrawalRequest::REJECTED, $withdrawal->status);
@@ -218,7 +218,7 @@ class FinopalPlatformTest extends TestCase
         $wallet = app(WalletService::class)->walletFor($senior, $role);
         app(WalletService::class)->credit($wallet, '5000.000', 'adjustment', 'credit-senior-self-wd');
 
-        $withdrawal = app(WithdrawalService::class)->request($senior, $wallet, '500.000', 'wd-senior-self');
+        $withdrawal = app(WithdrawalService::class)->request($senior, '500.000', 'active_role', $wallet, $role, 'wd-senior-self');
         $this->assertSame(WithdrawalRequest::SUPERUSER_PENDING, $withdrawal->status);
 
         $this->expectException(\RuntimeException::class);

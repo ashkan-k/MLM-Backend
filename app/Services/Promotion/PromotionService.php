@@ -230,6 +230,10 @@ class PromotionService
 
                 if ($targetSlug === 'sales_manager') {
                     $this->tree->rehomeUnderNewSalesManager($request->user, $newNode);
+                } elseif ($targetSlug === 'development_manager') {
+                    $this->tree->nestLowerRoleNodesUnder($request->user, $newNode);
+                } elseif ($targetSlug === 'senior_manager') {
+                    $this->tree->nestLowerRoleNodesUnder($request->user, $newNode);
                 }
             }
 

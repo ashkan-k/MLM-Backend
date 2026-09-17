@@ -26,16 +26,26 @@ class WithdrawalController extends Controller
     public function store(Request $request, WithdrawalService $service)
     {
         $data = $request->validate([
-            'wallet_id' => ['required', 'exists:wallets,id'],
+            'scope' => ['nullable', 'in:active_role,all_roles'],
+            'wallet_id' => ['nullable', 'exists:wallets,id'],
             'amount' => ['required', 'numeric', 'min:0.001'],
             'idempotency_key' => ['nullable', 'string'],
         ]);
 
-        $wallet = Wallet::query()->findOrFail($data['wallet_id']);
+        $scope = $data['scope'] ?? 'active_role';
+        $wallet = ! empty($data['wallet_id']) ? Wallet::query()->findOrFail($data['wallet_id']) : null;
+        $activeRole = $request->attributes->get('active_role');
 
         try {
             return response()->json(
-                $service->request($request->user(), $wallet, (string) $data['amount'], $data['idempotency_key'] ?? null),
+                $service->request(
+                    $request->user(),
+                    (string) $data['amount'],
+                    $scope,
+                    $wallet,
+                    $activeRole,
+                    $data['idempotency_key'] ?? null,
+                ),
                 201
             );
         } catch (RuntimeException $e) {

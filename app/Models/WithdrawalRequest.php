@@ -19,6 +19,7 @@ class WithdrawalRequest extends Model
 
     protected $fillable = [
         'wallet_id',
+        'wallet_allocations',
         'user_id',
         'amount',
         'status',
@@ -32,6 +33,7 @@ class WithdrawalRequest extends Model
     {
         return [
             'amount' => 'decimal:3',
+            'wallet_allocations' => 'array',
             'requested_at' => 'datetime',
             'completed_at' => 'datetime',
         ];
