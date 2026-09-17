@@ -51,7 +51,7 @@ class SeedFullDemoOrgCommand extends Command
                 ['کاربر چندنقشی ب', '09120202020', 'Password123!'],
             ]
         );
-        $this->line('کد معرف نمونه: SENIORREF ، REPREF ، SHARE_AREF ، …');
+        $this->line('کد معرف هر کاربر رشته تصادفی یونیک است (دیگر SENIORREF / موبایل+REF نیست).');
         $this->line('درگاه‌های نمونه: fino-seed-solo-0001 ، fino-seed-share-0001 ، fino-seed-multib-0001');
 
         return self::SUCCESS;

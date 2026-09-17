@@ -14,6 +14,7 @@ use App\Services\Organization\OrganizationTreeService;
 use App\Services\Referral\SelfReferralService;
 use App\Services\Referral\SharedLinkService;
 use App\Services\Wallet\WalletService;
+use App\Support\ReferralCodeGenerator;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
@@ -82,7 +83,7 @@ class FullDemoOrgSeeder extends Seeder
             ReferralCode::query()->updateOrCreate(
                 ['user_id' => $user->id],
                 [
-                    'code' => strtoupper($key).'REF',
+                    'code' => ReferralCodeGenerator::unique(),
                     'source' => 'finopal',
                     'is_active' => true,
                 ]

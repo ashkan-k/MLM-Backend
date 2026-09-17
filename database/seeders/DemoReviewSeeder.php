@@ -300,8 +300,8 @@ class DemoReviewSeeder extends Seeder
         }
 
         ReferralCode::query()->firstOrCreate(
-            ['user_id' => $user->id, 'code' => $referralCode],
-            ['source' => 'finopal', 'is_active' => true]
+            ['user_id' => $user->id],
+            ['code' => \App\Support\ReferralCodeGenerator::unique(), 'source' => 'finopal', 'is_active' => true]
         );
 
         $parent = $dev

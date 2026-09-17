@@ -15,6 +15,7 @@ use App\Services\Organization\OrganizationTreeService;
 use App\Services\Referral\SharedLinkService;
 use App\Services\Wallet\WalletService;
 use App\Services\Authorization\PermissionService;
+use App\Support\ReferralCodeGenerator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -149,7 +150,7 @@ class AuthController extends Controller
 
             $code = ReferralCode::query()->create([
                 'user_id' => $user->id,
-                'code' => 'R'.$user->id.strtoupper(substr(md5($user->mobile), 0, 6)),
+                'code' => ReferralCodeGenerator::unique(),
                 'source' => 'finopal',
                 'is_active' => true,
             ]);

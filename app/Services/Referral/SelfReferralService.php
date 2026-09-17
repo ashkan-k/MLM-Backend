@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\UserRole;
 use App\Services\Wallet\WalletService;
+use App\Support\ReferralCodeGenerator;
 
 class SelfReferralService
 {
@@ -26,7 +27,7 @@ class SelfReferralService
         $code = ReferralCode::query()->firstOrCreate(
             ['user_id' => $senior->id],
             [
-                'code' => 'R'.$senior->id.strtoupper(substr(md5($senior->mobile), 0, 6)),
+                'code' => ReferralCodeGenerator::unique(),
                 'source' => 'finopal',
                 'is_active' => true,
             ]

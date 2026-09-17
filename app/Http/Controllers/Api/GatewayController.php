@@ -96,7 +96,7 @@ class GatewayController extends Controller
             'customer.name' => ['required', 'string'],
             'customer.mobile' => ['required', 'string'],
             'customer.national_id' => ['required', 'string', 'size:10'],
-            'customer.sheba' => ['required', 'string'],
+            'customer.sheba' => ['required', 'string', 'regex:/^(IR)?[0-9]{24}$/i'],
             'customer.person_type' => ['nullable', 'in:individual,legal'],
             'customer.email' => ['nullable', 'email'],
             'customer.father_name' => ['nullable', 'string'],
@@ -127,6 +127,9 @@ class GatewayController extends Controller
             'idempotency_key' => ['nullable', 'string'],
             'sold_at' => ['nullable', 'date'],
         ], [
+            'customer.sheba.regex' => 'شبا باید ۲۴ رقم باشد (با یا بدون پیشوند IR).',
+            'customer.national_id.size' => 'کد ملی باید دقیقاً ۱۰ رقم باشد.',
+            'customer.email.email' => 'فرمت ایمیل معتبر نیست.',
             'customer.province.required' => 'برای شخص حقوقی، استان الزامی است.',
             'customer.city.required' => 'برای شخص حقوقی، شهر الزامی است.',
             'customer.address.required' => 'برای شخص حقوقی، نشانی کامل الزامی است.',

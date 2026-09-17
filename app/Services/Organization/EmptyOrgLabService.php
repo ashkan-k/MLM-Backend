@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\UserRole;
 use App\Services\Referral\SelfReferralService;
 use App\Services\Wallet\WalletService;
+use App\Support\ReferralCodeGenerator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -217,7 +218,7 @@ class EmptyOrgLabService
         ReferralCode::query()->firstOrCreate(
             ['user_id' => $user->id],
             [
-                'code' => strtoupper(preg_replace('/\D/', '', $mobile)).'REF',
+                'code' => ReferralCodeGenerator::unique(),
                 'source' => 'finopal',
                 'is_active' => true,
             ]
