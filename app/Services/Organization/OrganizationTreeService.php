@@ -249,6 +249,74 @@ class OrganizationTreeService
             });
     }
 
+    /**
+     * Demote: deactivate managerial roles ranked above $keepRoleSlug and move their
+     * downline under $teamParent (or $keepNode) so the chart shows the appointed role.
+     *
+     * @return list<string> deactivated role slugs
+     */
+    public function deactivateHigherManagerRoles(
+        User $user,
+        string $keepRoleSlug,
+        OrganizationNode $keepNode,
+        ?OrganizationNode $teamParent = null,
+    ): array {
+        $keepRole = Role::query()->where('slug', $keepRoleSlug)->firstOrFail();
+        $keepLevel = (int) $keepRole->hierarchy_level;
+        $destForTeam = $teamParent ?? $keepNode;
+
+        $higher = Role::query()
+            ->whereIn('slug', ['sales_manager', 'development_manager', 'senior_manager'])
+            ->where('hierarchy_level', '<', $keepLevel)
+            ->orderBy('hierarchy_level')
+            ->get();
+
+        $deactivated = [];
+        foreach ($higher as $role) {
+            $hadRole = UserRole::query()
+                ->where('user_id', $user->id)
+                ->where('role_id', $role->id)
+                ->where('is_active', true)
+                ->exists();
+            if (! $hadRole) {
+                continue;
+            }
+
+            $nodes = $this->activeNodesFor($user, $role->slug);
+            foreach ($nodes as $node) {
+                OrganizationNode::query()
+                    ->where('parent_node_id', $node->id)
+                    ->where('is_active', true)
+                    ->get()
+                    ->each(function (OrganizationNode $child) use ($keepNode, $destForTeam) {
+                        if ((int) $child->id === (int) $keepNode->id) {
+                            return;
+                        }
+                        if ((int) $child->parent_node_id !== (int) $destForTeam->id) {
+                            $this->reparent($child, $destForTeam);
+                        }
+                    });
+
+                $node->is_active = false;
+                $node->effective_to = now()->toDateString();
+                $node->save();
+            }
+
+            UserRole::query()
+                ->where('user_id', $user->id)
+                ->where('role_id', $role->id)
+                ->where('is_active', true)
+                ->update([
+                    'is_active' => false,
+                    'effective_to' => now()->toDateString(),
+                ]);
+
+            $deactivated[] = $role->slug;
+        }
+
+        return $deactivated;
+    }
+
     /** Parent node for a newly registered representative under their referrer. */
     public function registrationParentFor(User $referrer): ?OrganizationNode
     {

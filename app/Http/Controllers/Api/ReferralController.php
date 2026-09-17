@@ -9,6 +9,7 @@ use App\Models\SharedLink;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\Referral\SharedLinkService;
+use App\Support\ReferralCodeGenerator;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -16,8 +17,18 @@ class ReferralController extends Controller
 {
     public function codes(Request $request)
     {
+        $user = $request->user();
+        ReferralCode::query()->firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'code' => ReferralCodeGenerator::unique(),
+                'source' => 'finopal',
+                'is_active' => true,
+            ]
+        );
+
         return response()->json(
-            ReferralCode::query()->where('user_id', $request->user()->id)->get()
+            ReferralCode::query()->where('user_id', $user->id)->where('is_active', true)->get()
         );
     }
 

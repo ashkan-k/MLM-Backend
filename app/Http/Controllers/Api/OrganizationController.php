@@ -110,7 +110,7 @@ class OrganizationController extends Controller
             'target_user_id' => ['nullable', 'exists:users,id'],
             'appoint_user_id' => ['nullable', 'exists:users,id'],
             'manager_user_id' => ['required', 'exists:users,id'],
-            'manager_role' => ['required', 'in:sales_manager,development_manager'],
+            'manager_role' => ['required', 'in:sales_manager,development_manager,representative'],
         ]);
 
         $mode = $data['mode'] ?? (! empty($data['appoint_user_id']) && empty($data['target_user_id']) ? 'appoint' : 'reassign');
@@ -184,7 +184,11 @@ class OrganizationController extends Controller
         $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
 
         $parentNode = null;
-        if ($roleSlug === 'sales_manager') {
+        if ($roleSlug === 'representative') {
+            $parentNode = $tree->activeNodesFor($parentUser, 'sales_manager')->first()
+                ?? $tree->activeNodesFor($parentUser, 'development_manager')->first()
+                ?? $tree->activeNodesFor($parentUser, 'senior_manager')->first();
+        } elseif ($roleSlug === 'sales_manager') {
             $parentNode = $tree->activeNodesFor($parentUser, 'development_manager')->first()
                 ?? $tree->activeNodesFor($parentUser, 'senior_manager')->first();
         } else {
@@ -197,14 +201,23 @@ class OrganizationController extends Controller
             ]);
         }
 
-        $node = DB::transaction(function () use ($appoint, $role, $roleSlug, $parentNode, $tree, $wallets, $audit, $actor, $data) {
+        $parentNode->loadMissing('role');
+
+        // Parent must actually hold a suitable superior role for this appointment
+        if ($roleSlug === 'representative' && ! in_array($parentNode->role?->slug, ['sales_manager', 'development_manager', 'senior_manager'], true)) {
+            throw ValidationException::withMessages([
+                'manager_user_id' => ['برای الحاق نماینده، مافوق باید مدیر فروش/توسعه/ارشد باشد.'],
+            ]);
+        }
+
+        $result = DB::transaction(function () use ($appoint, $role, $roleSlug, $parentNode, $tree, $wallets, $audit, $actor, $data) {
             $userRole = UserRole::query()->firstOrNew([
                 'user_id' => $appoint->id,
                 'role_id' => $role->id,
             ]);
             if (! $userRole->exists) {
                 $userRole->effective_from = now()->toDateString();
-                $userRole->is_primary = false;
+                $userRole->is_primary = $roleSlug === 'representative';
             }
             $userRole->is_active = true;
             $userRole->effective_to = null;
@@ -218,22 +231,48 @@ class OrganizationController extends Controller
                 $node = $tree->attach($appoint, $role, $parentNode, now()->toDateString());
             }
 
+            // Demote any higher managerial roles so chart shows the appointed role (top→down)
+            $demoted = $tree->deactivateHigherManagerRoles(
+                $appoint->fresh('roles'),
+                $roleSlug,
+                $node,
+                $roleSlug === 'representative' ? $parentNode : null,
+            );
+
+            // Promote / rehome downline (bottom→up)
             if ($roleSlug === 'sales_manager') {
                 $tree->rehomeUnderNewSalesManager($appoint->fresh('roles'), $node);
-            } elseif (in_array($roleSlug, ['development_manager', 'senior_manager'], true)) {
+            } elseif ($roleSlug === 'development_manager') {
                 $tree->nestLowerRoleNodesUnder($appoint->fresh('roles'), $node);
             }
 
-            $audit->record($actor, 'organization.appoint_vacant', $node, null, $data);
+            $audit->record($actor, 'organization.appoint_vacant', $node, null, array_merge($data, [
+                'demoted_roles' => $demoted,
+            ]));
 
-            return $node;
+            return ['node' => $node, 'demoted' => $demoted];
         });
+
+        $node = $result['node'];
+        $demoted = $result['demoted'];
+        $roleNames = [
+            'representative' => 'نماینده',
+            'sales_manager' => 'مدیر فروش',
+            'development_manager' => 'مدیر توسعه',
+            'senior_manager' => 'مدیر ارشد',
+        ];
+        $message = $demoted === []
+            ? 'الحاق به سمت '.$roleNames[$roleSlug].' ثبت شد.'
+            : 'سمت به '.$roleNames[$roleSlug].' تغییر کرد و نقش‌های بالاتر ('.implode('، ', array_map(fn ($s) => $roleNames[$s] ?? $s, $demoted)).') غیرفعال شد.';
 
         return response()->json([
             'ok' => true,
             'mode' => 'appoint',
             'node_id' => $node->id,
             'parent_node_id' => $parentNode->id,
+            'demoted_roles' => $demoted,
+            'visible_role' => $roleSlug,
+            'message' => $message,
         ]);
     }
 }
