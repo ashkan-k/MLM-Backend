@@ -1104,8 +1104,140 @@ class FinopalPlatformTest extends TestCase
 
         $chart = $tree->tree();
         $json = json_encode($chart, JSON_UNESCAPED_UNICODE);
-        // Chart shows each person once; senior appears as senior_manager, newbie under that branch.
         $this->assertSame(1, substr_count($json, '09121111111'));
         $this->assertStringContainsString('09129990077', $json);
+    }
+
+    public function test_shared_referral_link_registers_with_split_referrers(): void
+    {
+        $a = $this->postJson('/api/auth/login', [
+            'mobile' => '09127777777',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->assertOk();
+        $b = User::query()->where('mobile', '09128888888')->firstOrFail();
+
+        $created = $this->withToken($a->json('token'))
+            ->postJson('/api/shared-links', [
+                'type' => 'referral',
+                'members' => [
+                    ['user_id' => $a->json('user.id'), 'share_percent' => 60],
+                    ['user_id' => $b->id, 'share_percent' => 40],
+                ],
+            ])
+            ->assertCreated()
+            ->json();
+
+        $this->assertSame('pending', $created['status']);
+
+        $bLogin = $this->postJson('/api/auth/login', [
+            'mobile' => '09128888888',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->assertOk();
+
+        $this->withToken($bLogin->json('token'))
+            ->postJson('/api/shared-links/'.$created['id'].'/approve')
+            ->assertOk()
+            ->assertJsonPath('status', 'active');
+
+        $token = $created['token'];
+        $preview = $this->getJson('/api/shared-links/token/'.$token)->assertOk();
+        $this->assertTrue($preview->json('usable'));
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'مشتری مشترک',
+            'mobile' => '09129990101',
+            'password' => 'Password123!',
+            'shared_link_token' => $token,
+        ])->assertCreated();
+
+        $newbie = User::query()->where('mobile', '09129990101')->firstOrFail();
+        $referral = \App\Models\RepresentativeReferral::query()
+            ->with('shareMembers')
+            ->where('referred_user_id', $newbie->id)
+            ->firstOrFail();
+
+        $this->assertCount(2, $referral->shareMembers);
+        $this->assertEqualsCanonicalizing(
+            [60.0, 40.0],
+            $referral->shareMembers->map(fn ($m) => (float) $m->share_percent)->all()
+        );
+
+        $link = \App\Models\SharedLink::query()->findOrFail($created['id']);
+        $this->assertSame('used', $link->status);
+        $this->assertNotNull($link->used_at);
+    }
+
+    public function test_shared_link_partners_lists_peer_representatives(): void
+    {
+        $a = $this->postJson('/api/auth/login', [
+            'mobile' => '09127777777',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->assertOk();
+
+        $partners = $this->withToken($a->json('token'))
+            ->getJson('/api/shared-links/partners')
+            ->assertOk()
+            ->json();
+
+        $mobiles = collect($partners)->pluck('mobile')->all();
+        $this->assertContains('09128888888', $mobiles);
+        $this->assertContains('09127777777', $mobiles);
+        $this->assertNotContains('09120000000', $mobiles);
+    }
+
+    public function test_shared_link_type_can_be_disabled_by_setting(): void
+    {
+        $super = $this->postJson('/api/auth/login', [
+            'mobile' => '09120000000',
+            'password' => 'Password123!',
+            'role_slug' => 'superuser',
+        ])->assertOk();
+
+        $this->withToken($super->json('token'))
+            ->postJson('/api/superuser/settings', [
+                'key' => 'shared_link_features',
+                'value' => [
+                    'referral_enabled' => false,
+                    'gateway_sale_enabled' => true,
+                ],
+            ])
+            ->assertOk();
+
+        $a = $this->postJson('/api/auth/login', [
+            'mobile' => '09127777777',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->assertOk();
+
+        $this->assertFalse($a->json('user.features.shared_links.referral_enabled'));
+        $this->assertTrue($a->json('user.features.shared_links.gateway_sale_enabled'));
+
+        $b = User::query()->where('mobile', '09128888888')->firstOrFail();
+        $this->withToken($a->json('token'))
+            ->postJson('/api/shared-links', [
+                'type' => 'referral',
+                'members' => [
+                    ['user_id' => $a->json('user.id'), 'share_percent' => 50],
+                    ['user_id' => $b->id, 'share_percent' => 50],
+                ],
+            ])
+            ->assertStatus(422);
+
+        $created = $this->withToken($a->json('token'))
+            ->postJson('/api/shared-links', [
+                'type' => 'gateway_sale',
+                'members' => [
+                    ['user_id' => $a->json('user.id'), 'share_percent' => 50],
+                    ['user_id' => $b->id, 'share_percent' => 50],
+                ],
+            ])
+            ->assertCreated()
+            ->json();
+
+        $preview = $this->getJson('/api/shared-links/token/'.$created['token'])->assertOk();
+        $this->assertSame('gateway_sale', $preview->json('type'));
     }
 }

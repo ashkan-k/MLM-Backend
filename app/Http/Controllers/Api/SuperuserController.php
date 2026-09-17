@@ -337,8 +337,10 @@ class SuperuserController extends Controller
 
     public function settings()
     {
+        $this->ensureDefaultSettings();
+
         return response()->json([
-            'items' => SystemSetting::query()->get(),
+            'items' => SystemSetting::query()->orderBy('id')->get(),
             'schema' => $this->settingsSchema(),
         ]);
     }
@@ -669,15 +671,44 @@ class SuperuserController extends Controller
                     ['key' => 'dm_eligible_sms', 'label' => 'مدیران فروش واجد شرایط', 'hint' => 'تعداد مدیران فروشی که خودشان آماده ارتقاء هستند', 'type' => 'number'],
                 ],
             ],
+            'shared_link_features' => [
+                'label' => 'لینک‌های اشتراکی',
+                'hint' => 'هر نوع لینک اشتراکی را می‌توان موقتاً در کل سامانه فعال یا غیرفعال کرد. در حالت غیرفعال در گزینه‌ها دیده نمی‌شود و قابل استفاده نیست.',
+                'fields' => [
+                    ['key' => 'referral_enabled', 'label' => 'لینک ثبت‌نام نماینده جدید', 'hint' => 'تقسیم سهم معرف برای ثبت‌نام مشتری از طریق لینک اشتراکی', 'type' => 'boolean'],
+                    ['key' => 'gateway_sale_enabled', 'label' => 'لینک فروش اشتراکی درگاه', 'hint' => 'مالکیت اشتراکی یک درگاه بین چند نماینده', 'type' => 'boolean'],
+                ],
+            ],
         ];
+    }
+
+    private function ensureDefaultSettings(): void
+    {
+        SystemSetting::query()->firstOrCreate(
+            ['key' => 'shared_link_features'],
+            [
+                'value' => [
+                    'referral_enabled' => true,
+                    'gateway_sale_enabled' => true,
+                ],
+                'value_type' => 'json',
+                'is_public' => true,
+            ]
+        );
     }
 
     private function normalizeSettingValue(string $key, array $value): array
     {
         $schema = $this->settingsSchema()[$key]['fields'] ?? [];
         foreach ($schema as $field) {
-            if (array_key_exists($field['key'], $value) && $field['type'] === 'number') {
+            if (! array_key_exists($field['key'], $value)) {
+                continue;
+            }
+            if ($field['type'] === 'number') {
                 $value[$field['key']] = is_numeric($value[$field['key']]) ? 0 + $value[$field['key']] : 0;
+            }
+            if ($field['type'] === 'boolean') {
+                $value[$field['key']] = filter_var($value[$field['key']], FILTER_VALIDATE_BOOLEAN);
             }
         }
 

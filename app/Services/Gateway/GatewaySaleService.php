@@ -9,6 +9,7 @@ use App\Models\OrganizationNode;
 use App\Models\RepresentativeReferral;
 use App\Models\Role;
 use App\Models\SharedLink;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\Commission\CommissionDistributor;
 use App\Services\Referral\SharedLinkService;
@@ -194,6 +195,12 @@ class GatewaySaleService
     {
         if (! empty($payload['shared_link_id'])) {
             $link = SharedLink::query()->with('members')->findOrFail($payload['shared_link_id']);
+            if ($link->type !== 'gateway_sale') {
+                abort(422, 'این لینک برای فروش اشتراکی درگاه نیست.');
+            }
+            if (! SystemSetting::sharedLinkTypeEnabled('gateway_sale')) {
+                abort(422, 'فروش اشتراکی درگاه فعلاً غیرفعال است.');
+            }
             if ($link->status !== 'active') {
                 abort(422, 'لینک اشتراکی فعال نیست.');
             }

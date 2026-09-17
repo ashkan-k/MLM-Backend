@@ -207,7 +207,10 @@ class OrganizationTreeService
         }
 
         $referredIds = RepresentativeReferral::query()
-            ->where('referrer_user_id', $salesManager->id)
+            ->where(function ($q) use ($salesManager) {
+                $q->where('referrer_user_id', $salesManager->id)
+                    ->orWhereHas('shareMembers', fn ($m) => $m->where('user_id', $salesManager->id));
+            })
             ->where('referred_user_id', '!=', $salesManager->id)
             ->pluck('referred_user_id');
 

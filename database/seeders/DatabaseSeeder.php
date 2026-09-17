@@ -131,6 +131,17 @@ class DatabaseSeeder extends Seeder
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
+            [
+                'key' => 'shared_link_features',
+                'value' => json_encode([
+                    'referral_enabled' => true,
+                    'gateway_sale_enabled' => true,
+                ]),
+                'value_type' => 'json',
+                'is_public' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
         ]);
 
         $tree = app(OrganizationTreeService::class);

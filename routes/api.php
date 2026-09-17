@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/register', [AuthController::class, 'register']);
+Route::get('/shared-links/token/{token}', [ReferralController::class, 'showByToken']);
 Route::post('/webhooks/frasoft', [SuperuserController::class, 'frasoftWebhook']);
 Route::post('/webhooks/finopal/transaction', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'transaction']);
 
@@ -49,6 +50,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/referrals/codes', [ReferralController::class, 'codes']);
         Route::get('/referrals', [ReferralController::class, 'referrals']);
         Route::get('/shared-links', [ReferralController::class, 'sharedLinks']);
+        Route::get('/shared-links/partners', [ReferralController::class, 'partners']);
         Route::post('/shared-links', [ReferralController::class, 'createSharedLink']);
         Route::post('/shared-links/{sharedLink}/approve', [ReferralController::class, 'approveSharedLink']);
 
