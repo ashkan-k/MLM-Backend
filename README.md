@@ -35,11 +35,16 @@ node realtime/ws-server.mjs
 |---|---|
 | `php artisan serve --host=127.0.0.1 --port=8000` | API server |
 | `php artisan migrate` | Apply new migrations |
-| `php artisan migrate:fresh --seed` | Wipe DB, seed demo users/sales, import geo |
+| `php artisan migrate:fresh --seed` | Wipe DB, seed demo users/sales, import geo (uses MySQL from `.env`) |
 | `php artisan db:seed --class=DemoReviewSeeder` | Extra review data (promotions, wallets, gateway queues) without wiping |
-| `php artisan finopal:seed-webhook-demo` | Import/update Finopal webhook test gateway (full org tree, no migrate:fresh) |
+| `php artisan finopal:seed-webhook-demo` | Import/update Finopal webhook test gateways (does **not** wipe users; by default clears txs/commissions/wallets for those merchants) |
 | `php artisan finopal:seed-webhook-demo --with-transaction` | Same + one sample transaction and commission split |
-| `php artisan finopal:seed-webhook-demo --reset` | Clear demo transactions/commissions for that merchant |
+| `php artisan finopal:seed-webhook-demo --skip-reset` | Keep existing txs/commissions for demo merchants |
+| `php artisan finopal:seed-empty-org` | Rebuild empty org: only senior (holds SM/DM/senior), no representatives |
+| `php artisan finopal:seed-empty-org --purge --force` | Wipe all users except superuser, then seed only senior |
+| `php artisan finopal:seed-full-demo` | Re-import full test org (users, tree, gateways, txs, DemoReview) |
+| `php artisan finopal:seed-full-demo --purge` | Purge non-superusers, then re-import full test org (recommended reset) |
+| `php artisan demo:shared-commissions` | Demo gateways/txs for shared referral + A/B shared sale |
 | `php artisan geo:import` | Import/normalize Iranian provinces & cities from `database/data/iran-geo.json` |
 | `php artisan geo:import --from-shop-maker` | Pull `states`/`cities` from MySQL `shop_maker` and rewrite the JSON |
 | `php artisan geo:import --path=FILE` | Import a specific JSON file |
