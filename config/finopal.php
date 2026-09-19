@@ -2,8 +2,10 @@
 
 return [
     'currency' => 'IRT',
-    'base_organization_percent' => '31.500',
-    'reward_pool_percent' => '8.500',
+    // Economic outflow of per-tx role rates: 15 (rep pool, may include referrer cut) + 6 + 4.5 + 4 = 29.5
+    // Referrer 2% is taken from the referred rep's slice (not additive).
+    'base_organization_percent' => '29.500',
+    'reward_pool_percent' => '10.500',
     'max_organization_percent' => '40.000',
     'full_sale_points' => 100,
     'roles' => [
