@@ -244,7 +244,7 @@ class FinopalPlatformTest extends TestCase
                 'idempotency_key' => 'wd-no-balance',
             ])
             ->assertStatus(422)
-            ->assertJsonPath('message', 'موجودی کافی نیست.');
+            ->assertJsonPath('message', 'موجودی قابل برداشت نقش فعال کافی نیست.');
     }
 
     public function test_tree_chat_allows_ancestors_and_denies_cross_branch(): void
@@ -737,6 +737,141 @@ class FinopalPlatformTest extends TestCase
         ])->assertOk()->assertJsonPath('duplicate', true);
 
         $this->assertSame(1, \App\Models\FinopalTransaction::query()->where('authority', 'FP_WEBHOOK_SHARE_NEW')->count());
+    }
+
+    public function test_monthly_bonus_uses_bonus_percent_on_month_profit_not_per_tx_rate_swap(): void
+    {
+        \App\Models\SystemSetting::query()->updateOrCreate(
+            ['key' => 'qualification_thresholds'],
+            [
+                'value' => [
+                    'representative_points' => 100,
+                    'sales_manager_gateways' => 50,
+                    'development_manager_gateways' => 200,
+                ],
+                'value_type' => 'json',
+                'is_public' => true,
+            ]
+        );
+
+        $sale = GatewaySale::query()->whereHas('gateway', fn ($q) => $q->where('external_id', 'GW-SOLO-1'))->firstOrFail();
+
+        $tx = $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-seed-solo-0001',
+            'authority' => 'FP_BONUS_SOLO_1',
+            'amount' => 1000000,
+            'profit' => 100000,
+            'currency' => 'IRT',
+            'status' => 'OK',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk();
+
+        $this->assertGreaterThan(0, (int) $tx->json('commissions'));
+
+        $perTx = Commission::query()
+            ->where('finopal_transaction_id', $tx->json('id'))
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->first();
+
+        $this->assertNotNull($perTx);
+        $this->assertSame('15.000', (string) $perTx->commission_percent);
+
+        $bonus = Commission::query()
+            ->where('user_id', $perTx->user_id)
+            ->where('idempotency_key', 'like', 'monthly-bonus:'.$perTx->user_id.':%')
+            ->where('status', 'posted')
+            ->first();
+
+        $this->assertNotNull($bonus, 'monthly bonus should post after qualification');
+        $this->assertSame('20.000', (string) $bonus->commission_percent);
+        $this->assertSame('monthly_bonus', $bonus->metadata['type'] ?? null);
+        $this->assertNull($bonus->gateway_sale_id);
+        $this->assertSame($sale->id, $perTx->gateway_sale_id);
+
+        $seniorToken = $this->postJson('/api/auth/login', [
+            'mobile' => '09121111111',
+            'password' => 'Password123!',
+            'role_slug' => 'senior_manager',
+        ])->json('token');
+
+        $monitorAll = $this->withToken($seniorToken)->getJson('/api/monthly-bonus')->assertOk();
+        $monitorAll->assertJsonStructure([
+            'monitor' => [
+                'summary' => ['month', 'downline_users', 'bonuses_posted', 'bonuses_amount'],
+                'data',
+                'meta',
+            ],
+        ]);
+        $allUsers = (int) $monitorAll->json('monitor.summary.downline_users');
+
+        $monitorRep = $this->withToken($seniorToken)
+            ->getJson('/api/monthly-bonus?role_slug=representative')
+            ->assertOk();
+        $repUsers = (int) $monitorRep->json('monitor.summary.downline_users');
+        $this->assertTrue($repUsers <= $allUsers);
+
+        $repToken = $this->postJson('/api/auth/login', [
+            'mobile' => '09125555555',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->json('token');
+
+        $this->withToken($repToken)->postJson('/api/monthly-bonus/pay', [
+            'user_id' => $perTx->user_id,
+            'role_slug' => 'representative',
+        ])->assertForbidden();
+
+        $key = 'monthly-bonus:'.$perTx->user_id.':'.$perTx->role_id.':'.now()->format('Y-m');
+        $existingBonus = Commission::query()->where('idempotency_key', $key)->where('status', 'posted')->first();
+        $this->assertNotNull($existingBonus);
+
+        // Reverse current-month bonus by temporarily failing qualification, then restore and pay.
+        \App\Models\SystemSetting::query()->updateOrCreate(
+            ['key' => 'qualification_thresholds'],
+            [
+                'value' => [
+                    'representative_points' => 999999,
+                    'sales_manager_gateways' => 50,
+                    'development_manager_gateways' => 200,
+                ],
+                'value_type' => 'json',
+                'is_public' => true,
+            ]
+        );
+        app(\App\Services\Commission\MonthlyBonusService::class)->refresh(
+            \App\Models\User::query()->findOrFail($perTx->user_id),
+            'representative',
+            now()
+        );
+        $this->assertFalse(
+            Commission::query()->where('idempotency_key', $key)->where('status', 'posted')->exists()
+        );
+
+        \App\Models\SystemSetting::query()->updateOrCreate(
+            ['key' => 'qualification_thresholds'],
+            [
+                'value' => [
+                    'representative_points' => 100,
+                    'sales_manager_gateways' => 50,
+                    'development_manager_gateways' => 200,
+                ],
+                'value_type' => 'json',
+                'is_public' => true,
+            ]
+        );
+
+        $this->withToken($seniorToken)->postJson('/api/monthly-bonus/pay', [
+            'user_id' => $perTx->user_id,
+            'role_slug' => 'representative',
+        ])->assertOk()
+            ->assertJsonPath('commission.status', 'posted');
+
+        $this->assertTrue(
+            Commission::query()->where('idempotency_key', $key)->where('status', 'posted')->exists()
+        );
     }
 
     public function test_only_senior_manager_can_list_or_create_benefit_transfers(): void

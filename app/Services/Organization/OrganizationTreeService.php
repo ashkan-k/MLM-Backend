@@ -29,6 +29,24 @@ class OrganizationTreeService
 
     public function descendants(User $user, ?string $roleSlug = null): Collection
     {
+        $ids = $this->descendantUserIds($user, $roleSlug);
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return User::query()->whereIn('id', $ids->all())->get();
+    }
+
+    /** Lightweight count — does not hydrate User models. */
+    public function descendantCount(User $user, ?string $roleSlug = null): int
+    {
+        return $this->descendantUserIds($user, $roleSlug)->count();
+    }
+
+    /** @return Collection<int, int> */
+    public function descendantUserIds(User $user, ?string $roleSlug = null): Collection
+    {
         $nodes = $this->activeNodesFor($user, $roleSlug);
         $ids = collect();
 
@@ -42,7 +60,51 @@ class OrganizationTreeService
             $ids = $ids->merge($childIds);
         }
 
-        return User::query()->whereIn('id', $ids->unique()->all())->get();
+        return $ids->unique()->values();
+    }
+
+    /**
+     * Paginate downline users without loading the full tree into memory.
+     *
+     * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator
+     */
+    public function paginateDescendants(User $user, int $perPage = 20, ?string $search = null, ?string $roleSlug = null)
+    {
+        $perPage = max(1, min(50, $perPage));
+        $nodes = $this->activeNodesFor($user);
+        if ($nodes->isEmpty()) {
+            return User::query()->whereRaw('0 = 1')->paginate($perPage);
+        }
+
+        $nodeQuery = OrganizationNode::query()
+            ->where('organization_nodes.is_active', true)
+            ->where(function ($q) use ($nodes) {
+                foreach ($nodes as $node) {
+                    $path = $node->path ?: '/'.$node->id.'/';
+                    $q->orWhere(function ($inner) use ($path, $node) {
+                        $inner->where('organization_nodes.path', 'like', $path.'%')
+                            ->where('organization_nodes.id', '!=', $node->id);
+                    });
+                }
+            });
+
+        if ($roleSlug) {
+            $nodeQuery->whereHas('role', fn ($q) => $q->where('slug', $roleSlug));
+        }
+
+        $userIds = $nodeQuery->select('organization_nodes.user_id')->distinct();
+
+        return User::query()
+            ->whereIn('id', $userIds)
+            ->when($search, function ($q) use ($search) {
+                $term = '%'.trim($search).'%';
+                $q->where(function ($inner) use ($term) {
+                    $inner->where('name', 'like', $term)
+                        ->orWhere('mobile', 'like', $term);
+                });
+            })
+            ->orderBy('id')
+            ->paginate($perPage);
     }
 
     public function ancestors(User $user, ?string $roleSlug = null): Collection
@@ -66,7 +128,7 @@ class OrganizationTreeService
 
     public function isDescendant(User $actor, User $target): bool
     {
-        return $this->descendants($actor)->contains(fn (User $user) => $user->id === $target->id);
+        return $this->descendantUserIds($actor)->contains($target->id);
     }
 
     public function isAncestor(User $actor, User $target): bool

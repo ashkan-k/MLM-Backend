@@ -12,10 +12,10 @@ class CommissionEngine
 {
     public function __construct(
         private readonly CommissionRuleResolver $rules,
-        private readonly QualificationService $qualification,
         private readonly CommissionCalculator $calculator,
         private readonly CommissionDistributor $distributor,
         private readonly CommissionLedger $ledger,
+        private readonly MonthlyBonusService $monthlyBonus,
     ) {}
 
     public function process(GatewaySale $sale, ?FinopalTransaction $transaction = null): array
@@ -33,6 +33,7 @@ class CommissionEngine
             $created = [];
             $at = $transaction->paid_at ?? $sale->sold_at;
             $base = (string) $transaction->profit;
+            $touched = [];
 
             foreach ($sale->representatives as $row) {
                 $created[] = $this->creditRole(
@@ -41,12 +42,13 @@ class CommissionEngine
                     $row->user,
                     'representative',
                     $this->calculator->sharedPercent(
-                        $this->resolvedPercent('representative', $row->user, $at),
+                        $this->basePercent('representative', $at),
                         (string) $row->share_percent
                     ),
                     $base,
                     ['share_percent' => $row->share_percent, 'sales_points' => $row->sales_points, 'finopal_transaction_id' => $transaction->id]
                 );
+                $touched[] = [$row->user, 'representative'];
             }
 
             foreach ($sale->referrers as $row) {
@@ -56,12 +58,13 @@ class CommissionEngine
                     $row->user,
                     'representative_referrer',
                     $this->calculator->sharedPercent(
-                        $this->resolvedPercent('representative_referrer', $row->user, $at),
+                        $this->basePercent('representative_referrer', $at),
                         (string) $row->share_percent
                     ),
                     $base,
                     ['share_percent' => $row->share_percent, 'finopal_transaction_id' => $transaction->id]
                 );
+                $touched[] = [$row->user, 'representative_referrer'];
             }
 
             foreach ($sale->managers as $row) {
@@ -70,31 +73,26 @@ class CommissionEngine
                     $transaction,
                     $row->user,
                     $row->role->slug,
-                    $this->resolvedPercent($row->role->slug, $row->user, $at),
+                    $this->basePercent($row->role->slug, $at),
                     $base,
                     ['manager_role' => $row->role->slug, 'finopal_transaction_id' => $transaction->id]
                 );
+                $touched[] = [$row->user, $row->role->slug];
+            }
+
+            foreach ($touched as [$user, $slug]) {
+                $this->monthlyBonus->refresh($user, $slug, $at instanceof \Carbon\CarbonInterface ? $at : now());
             }
 
             return array_values(array_filter($created));
         });
     }
 
-    private function resolvedPercent(string $roleSlug, User $user, mixed $at): string
+    private function basePercent(string $roleSlug, mixed $at): string
     {
         $version = $this->rules->resolve($roleSlug, $at);
-        $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
-        $qualified = $this->qualification->isQualified($roleSlug, $user, $role->id, $at);
 
-        if (! $version) {
-            return '0.000';
-        }
-
-        return $this->calculator->qualifiedPercent(
-            (string) $version->percent,
-            $version->qualified_percent !== null ? (string) $version->qualified_percent : null,
-            $qualified
-        );
+        return $version ? (string) $version->percent : '0.000';
     }
 
     private function creditRole(
@@ -120,7 +118,7 @@ class CommissionEngine
             $percent,
             $amount,
             $key,
-            $metadata + ['qualified_percent' => $percent],
+            $metadata + ['rate_type' => 'base'],
             $transaction->id,
         );
     }

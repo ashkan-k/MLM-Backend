@@ -8,6 +8,7 @@ use App\Models\GatewaySale;
 use App\Models\PromotionRequest;
 use App\Models\Wallet;
 use App\Models\WithdrawalRequest;
+use App\Services\Commission\MonthlyBonusService;
 use App\Services\Commission\QualificationService;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Promotion\PromotionService;
@@ -15,8 +16,13 @@ use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
-    public function show(Request $request, QualificationService $qualification, OrganizationTreeService $tree, PromotionService $promotions)
-    {
+    public function show(
+        Request $request,
+        QualificationService $qualification,
+        OrganizationTreeService $tree,
+        PromotionService $promotions,
+        MonthlyBonusService $monthlyBonus,
+    ) {
         $user = $request->user();
         $role = $request->attributes->get('active_role');
         $promotions->autoSubmitIfEligible($user);
@@ -26,12 +32,14 @@ class DashboardController extends Controller
             : null;
 
         $progress = $role ? $qualification->progress($role->slug, $user, $role->id, now()) : null;
+        $bonus = $role ? $monthlyBonus->preview($user, $role->slug, now()) : null;
 
         return response()->json([
             'role' => $role,
             'wallet' => $wallet,
             'qualification' => $progress,
-            'team_count' => $tree->descendants($user)->count(),
+            'monthly_bonus' => $bonus,
+            'team_count' => $tree->descendantCount($user),
             'monthly_commissions' => Commission::query()
                 ->where('user_id', $user->id)
                 ->when($role, fn ($q) => $q->where('role_id', $role->id))

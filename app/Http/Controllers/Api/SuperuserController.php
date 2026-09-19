@@ -655,26 +655,53 @@ class SuperuserController extends Controller
         return [
             'qualification_thresholds' => [
                 'label' => 'آستانه‌های پاداش ماهانه',
-                'hint' => 'اگر فروش نقش به این حد برسد، درصد بالاتر (درصد از پاداش) اعمال می‌شود.',
-                'fields' => [
-                    ['key' => 'representative_points', 'label' => 'حداقل امتیاز نماینده', 'hint' => 'امتیاز فروش شخصی نماینده در ماه', 'type' => 'number'],
-                    ['key' => 'sales_manager_gateways', 'label' => 'حداقل درگاه مدیر فروش', 'hint' => 'تعداد درگاه فعال تیم مدیر فروش', 'type' => 'number'],
-                    ['key' => 'development_manager_gateways', 'label' => 'حداقل درگاه مدیر توسعه', 'hint' => 'تعداد درگاه فعال شبکه مدیر توسعه', 'type' => 'number'],
+                'hint' => 'حد نصاب ماه جاری هر نقش؛ فقط برای همین ماه بررسی می‌شود و با شروع ماه بعد از صفر محاسبه می‌گردد. در صورت رسیدن، درصد پاداش ماهانه × مجموع سود تراکنش‌های همان ماه واریز می‌شود.',
+                'groups' => [
+                    [
+                        'label' => 'نماینده',
+                        'fields' => [
+                            ['key' => 'representative_points', 'label' => 'حداقل امتیاز ماهانه', 'hint' => 'امتیاز فروش شخصی نماینده در ماه جاری', 'type' => 'number'],
+                        ],
+                    ],
+                    [
+                        'label' => 'مدیر فروش',
+                        'fields' => [
+                            ['key' => 'sales_manager_gateways', 'label' => 'حداقل ثبت درگاه مدیر فروش', 'hint' => 'تعداد درگاه ثبت‌شده و نهایی‌شده از ابتدای ماه جاری که مدیر فروش در زنجیره مدیران آن‌هاست', 'type' => 'number'],
+                        ],
+                    ],
+                    [
+                        'label' => 'مدیر توسعه',
+                        'fields' => [
+                            ['key' => 'development_manager_gateways', 'label' => 'حداقل ثبت درگاه مدیر توسعه', 'hint' => 'تعداد درگاه ثبت‌شده و نهایی‌شده از ابتدای ماه جاری که مدیر توسعه در زنجیره مدیران آن‌هاست', 'type' => 'number'],
+                        ],
+                    ],
                 ],
             ],
             'promotion_criteria' => [
                 'label' => 'معیارهای ارتقاء سازمانی',
-                'hint' => 'حد نصاب‌هایی که برای ارسال و تایید ارتقاء نقش بررسی می‌شوند.',
-                'fields' => [
-                    ['key' => 'sm_personal_points', 'label' => 'امتیاز فروش شخصی برای مدیر فروش', 'hint' => 'حداقل امتیاز فروش خود نماینده', 'type' => 'number'],
-                    ['key' => 'sm_new_reps', 'label' => 'تعداد نمایندگان جدید برای مدیر فروش', 'hint' => 'نمایندگانی که باید معرفی شده باشند', 'type' => 'number'],
-                    ['key' => 'sm_strong_reps', 'label' => 'نمایندگان قوی برای مدیر فروش', 'hint' => 'نمایندگان با امتیاز بالا', 'type' => 'number'],
-                    ['key' => 'sm_rep_points', 'label' => 'امتیاز نمایندگان زیرمجموعه مدیر فروش', 'hint' => 'مجموع امتیاز فروش نمایندگان معرفی‌شده', 'type' => 'number'],
-                    ['key' => 'dm_years', 'label' => 'سابقه لازم برای مدیر توسعه (سال)', 'hint' => 'حداقل سابقه به‌عنوان مدیر فروش', 'type' => 'number'],
-                    ['key' => 'dm_new_reps', 'label' => 'نمایندگان ثبت‌شده برای مدیر توسعه', 'hint' => 'مجموع نمایندگان شبکه', 'type' => 'number'],
-                    ['key' => 'dm_strong_reps', 'label' => 'نمایندگان قوی برای مدیر توسعه', 'hint' => 'نمایندگان با امتیاز بالا در شبکه', 'type' => 'number'],
-                    ['key' => 'dm_rep_points', 'label' => 'امتیاز نمایندگان برای مدیر توسعه', 'hint' => 'مجموع امتیاز فروش شبکه', 'type' => 'number'],
-                    ['key' => 'dm_eligible_sms', 'label' => 'مدیران فروش واجد شرایط', 'hint' => 'تعداد مدیران فروشی که خودشان آماده ارتقاء هستند', 'type' => 'number'],
+                'hint' => 'حد نصاب‌هایی که برای ارسال و تایید ارتقاء نقش بررسی می‌شوند؛ برای هر مسیر ارتقاء جداگانه تنظیم کنید.',
+                'groups' => [
+                    [
+                        'label' => 'ارتقاء به مدیر فروش',
+                        'hint' => 'شرایطی که نماینده برای ارسال درخواست ارتقاء به مدیر فروش باید داشته باشد.',
+                        'fields' => [
+                            ['key' => 'sm_personal_points', 'label' => 'امتیاز فروش شخصی', 'hint' => 'حداقل امتیاز فروش خود نماینده', 'type' => 'number'],
+                            ['key' => 'sm_new_reps', 'label' => 'تعداد نمایندگان جدید', 'hint' => 'نمایندگانی که باید معرفی شده باشند', 'type' => 'number'],
+                            ['key' => 'sm_strong_reps', 'label' => 'نمایندگان قوی', 'hint' => 'نمایندگان با امتیاز بالا', 'type' => 'number'],
+                            ['key' => 'sm_rep_points', 'label' => 'امتیاز نمایندگان زیرمجموعه', 'hint' => 'مجموع امتیاز فروش نمایندگان معرفی‌شده', 'type' => 'number'],
+                        ],
+                    ],
+                    [
+                        'label' => 'ارتقاء به مدیر توسعه',
+                        'hint' => 'شرایطی که مدیر فروش برای ارتقاء به مدیر توسعه باید داشته باشد.',
+                        'fields' => [
+                            ['key' => 'dm_years', 'label' => 'سابقه لازم (سال)', 'hint' => 'حداقل سابقه به‌عنوان مدیر فروش', 'type' => 'number'],
+                            ['key' => 'dm_new_reps', 'label' => 'نمایندگان ثبت‌شده', 'hint' => 'مجموع نمایندگان شبکه', 'type' => 'number'],
+                            ['key' => 'dm_strong_reps', 'label' => 'نمایندگان قوی', 'hint' => 'نمایندگان با امتیاز بالا در شبکه', 'type' => 'number'],
+                            ['key' => 'dm_rep_points', 'label' => 'امتیاز نمایندگان شبکه', 'hint' => 'مجموع امتیاز فروش شبکه', 'type' => 'number'],
+                            ['key' => 'dm_eligible_sms', 'label' => 'مدیران فروش واجد شرایط', 'hint' => 'تعداد مدیران فروشی که خودشان آماده ارتقاء هستند', 'type' => 'number'],
+                        ],
+                    ],
                 ],
             ],
             'shared_link_features' => [
@@ -705,7 +732,17 @@ class SuperuserController extends Controller
 
     private function normalizeSettingValue(string $key, array $value): array
     {
-        $schema = $this->settingsSchema()[$key]['fields'] ?? [];
+        $meta = $this->settingsSchema()[$key] ?? [];
+        $schema = $meta['fields'] ?? [];
+        if (! empty($meta['groups']) && is_array($meta['groups'])) {
+            $schema = [];
+            foreach ($meta['groups'] as $group) {
+                foreach ($group['fields'] ?? [] as $field) {
+                    $schema[] = $field;
+                }
+            }
+        }
+
         foreach ($schema as $field) {
             if (! array_key_exists($field['key'], $value)) {
                 continue;

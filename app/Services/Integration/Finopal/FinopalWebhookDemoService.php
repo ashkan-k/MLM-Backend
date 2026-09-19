@@ -15,7 +15,6 @@ use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\Commission\CommissionCalculator;
 use App\Services\Commission\CommissionRuleResolver;
-use App\Services\Commission\QualificationService;
 use App\Services\Gateway\GatewaySaleService;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Referral\SharedLinkService;
@@ -59,7 +58,6 @@ class FinopalWebhookDemoService
         private readonly GatewaySaleService $sales,
         private readonly CommissionCalculator $calculator,
         private readonly CommissionRuleResolver $rules,
-        private readonly QualificationService $qualification,
     ) {}
 
     public function prepare(bool $withSampleTransaction = false, bool $reset = true): array
@@ -293,18 +291,18 @@ class FinopalWebhookDemoService
         $rows = [];
 
         foreach ($sale->representatives as $row) {
-            $percent = $this->resolvedSharedPercent('representative', $row->user, (string) $row->share_percent, $at);
+            $percent = $this->resolvedSharedPercent('representative', (string) $row->share_percent, $at);
             $rows[] = $this->row($row->user, 'representative', 'نماینده', $percent, $profitBase, (string) $row->share_percent);
         }
 
         foreach ($sale->referrers as $row) {
-            $percent = $this->resolvedSharedPercent('representative_referrer', $row->user, (string) $row->share_percent, $at);
+            $percent = $this->resolvedSharedPercent('representative_referrer', (string) $row->share_percent, $at);
             $rows[] = $this->row($row->user, 'representative_referrer', 'نماینده معرف', $percent, $profitBase, (string) $row->share_percent);
         }
 
         foreach ($sale->managers as $row) {
             $slug = $row->role?->slug ?? 'manager';
-            $percent = $this->resolvedPercent($slug, $row->user, $row->role_id, $at);
+            $percent = $this->resolvedPercent($slug, $at);
             $rows[] = $this->row($row->user, $slug, $row->role?->name ?? $slug, $percent, $profitBase);
         }
 
@@ -333,28 +331,17 @@ class FinopalWebhookDemoService
         ];
     }
 
-    private function resolvedPercent(string $roleSlug, User $user, int $roleId, mixed $at): string
+    private function resolvedPercent(string $roleSlug, mixed $at): string
     {
         $version = $this->rules->resolve($roleSlug, $at);
-        $qualified = $this->qualification->isQualified($roleSlug, $user, $roleId, $at);
 
-        if (! $version) {
-            return '0.000';
-        }
-
-        return $this->calculator->qualifiedPercent(
-            (string) $version->percent,
-            $version->qualified_percent !== null ? (string) $version->qualified_percent : null,
-            $qualified
-        );
+        return $version ? Money::normalize((string) $version->percent) : '0.000';
     }
 
-    private function resolvedSharedPercent(string $roleSlug, User $user, string $sharePercent, mixed $at): string
+    private function resolvedSharedPercent(string $roleSlug, string $sharePercent, mixed $at): string
     {
-        $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
-
         return $this->calculator->sharedPercent(
-            $this->resolvedPercent($roleSlug, $user, $role->id, $at),
+            $this->resolvedPercent($roleSlug, $at),
             $sharePercent
         );
     }

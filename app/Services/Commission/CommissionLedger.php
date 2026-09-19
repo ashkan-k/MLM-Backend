@@ -16,7 +16,7 @@ class CommissionLedger
     public function post(
         User $user,
         Role $role,
-        GatewaySale $sale,
+        ?GatewaySale $sale,
         ?int $ruleVersionId,
         string $baseAmount,
         string $percent,
@@ -33,7 +33,7 @@ class CommissionLedger
         $commission = Commission::query()->create([
             'user_id' => $user->id,
             'role_id' => $role->id,
-            'gateway_sale_id' => $sale->id,
+            'gateway_sale_id' => $sale?->id,
             'finopal_transaction_id' => $transactionId,
             'rule_version_id' => $ruleVersionId,
             'base_amount' => Money::normalize($baseAmount, 3),

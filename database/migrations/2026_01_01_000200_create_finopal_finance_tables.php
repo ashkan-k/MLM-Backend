@@ -99,7 +99,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('role_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('gateway_sale_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('gateway_sale_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('rule_version_id')->nullable()->constrained('commission_rule_versions')->nullOnDelete();
             $table->decimal('base_amount', 18, 2);
             $table->decimal('commission_percent', 8, 3);

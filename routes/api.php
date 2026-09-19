@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\GatewayController;
 use App\Http\Controllers\Api\GeoController;
+use App\Http\Controllers\Api\MonthlyBonusController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\PromotionController;
@@ -46,6 +47,8 @@ Route::middleware(['auth.api'])->group(function () {
         Route::post('/gateway-sales/{sale}/inspect', [GatewayController::class, 'inspect']);
         Route::post('/gateway-sales/{sale}/parties', [GatewayController::class, 'updateParties']);
         Route::get('/commissions', [GatewayController::class, 'commissions']);
+        Route::get('/monthly-bonus', [MonthlyBonusController::class, 'show']);
+        Route::post('/monthly-bonus/pay', [MonthlyBonusController::class, 'pay']);
 
         Route::get('/referrals/codes', [ReferralController::class, 'codes']);
         Route::get('/referrals', [ReferralController::class, 'referrals']);
