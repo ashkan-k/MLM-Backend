@@ -291,13 +291,45 @@ class FinopalWebhookDemoService
         $rows = [];
 
         foreach ($sale->representatives as $row) {
-            $percent = $this->resolvedSharedPercent('representative', (string) $row->share_percent, $at);
-            $rows[] = $this->row($row->user, 'representative', 'نماینده', $percent, $profitBase, (string) $row->share_percent);
+            $share = (string) $row->share_percent;
+            $percent = $this->resolvedSharedPercent('representative', $share, $at);
+            $gross = Money::percentOf($profitBase, $percent);
+            $slice = Money::percentOf($profitBase, $share);
+            $deduction = '0.000';
+            $referral = \App\Models\RepresentativeReferral::query()
+                ->with('shareMembers')
+                ->where('referred_user_id', $row->user_id)
+                ->first();
+            if ($referral) {
+                $refRate = $this->resolvedPercent('representative_referrer', $at);
+                $deduction = Money::percentOf($slice, $refRate);
+            }
+            $net = Money::sub($gross, $deduction);
+            $rows[] = [
+                'user' => $row->user?->name,
+                'mobile' => $row->user?->mobile,
+                'role_slug' => 'representative',
+                'role_label' => 'نماینده',
+                'percent' => Money::normalize($percent, 3),
+                'share_note' => $share,
+                'base' => Money::normalize($profitBase, 3),
+                'amount' => Money::normalize($net, 3),
+                'gross_amount' => Money::normalize($gross, 3),
+                'referrer_deduction' => Money::normalize($deduction, 3),
+            ];
         }
 
         foreach ($sale->referrers as $row) {
-            $percent = $this->resolvedSharedPercent('representative_referrer', (string) $row->share_percent, $at);
-            $rows[] = $this->row($row->user, 'representative_referrer', 'نماینده معرف', $percent, $profitBase, (string) $row->share_percent);
+            $rate = $this->resolvedPercent('representative_referrer', $at);
+            $attributed = Money::percentOf($profitBase, (string) $row->share_percent);
+            $rows[] = $this->row(
+                $row->user,
+                'representative_referrer',
+                'نماینده معرف',
+                $rate,
+                $attributed,
+                (string) $row->share_percent
+            );
         }
 
         foreach ($sale->managers as $row) {

@@ -31,6 +31,20 @@ class CommissionMathTest extends TestCase
         ]);
     }
 
+    public function test_partial_referrer_shares_are_allowed_under_one_hundred(): void
+    {
+        $distributor = new CommissionDistributor;
+        // Only half of a shared sale is referred → total referrer weight 50% is valid.
+        $distributor->assertReferrerSharesWithinBounds([
+            ['share_percent' => '50.000'],
+        ]);
+        $this->expectException(InvalidArgumentException::class);
+        $distributor->assertReferrerSharesWithinBounds([
+            ['share_percent' => '60.000'],
+            ['share_percent' => '50.000'],
+        ]);
+    }
+
     public function test_money_never_uses_binary_floats(): void
     {
         $this->assertSame('150000.000', Money::percentOf('1000000', '15.000'));

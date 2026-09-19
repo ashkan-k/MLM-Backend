@@ -25,8 +25,12 @@ class CommissionDistributor
     {
         $this->assertShares($sale->representatives);
 
+        // Referrer shares are weighted by each selling rep's ownership slice.
+        // When only some shared reps have a referrer, the total is intentionally < 100%
+        // (unreferred portion pays no referrer commission). Requiring exactly 100%
+        // would abort the entire transaction commission run.
         if ($sale->referrers->isNotEmpty()) {
-            $this->assertShares($sale->referrers);
+            $this->assertReferrerSharesWithinBounds($sale->referrers);
         }
 
         return [
@@ -34,5 +38,22 @@ class CommissionDistributor
             'referrers' => $sale->referrers,
             'managers' => $sale->managers,
         ];
+    }
+
+    public function assertReferrerSharesWithinBounds(iterable $shares): void
+    {
+        $total = '0.000';
+        foreach ($shares as $share) {
+            $percent = is_array($share) ? ($share['share_percent'] ?? $share['percent'] ?? 0) : $share->share_percent;
+            $percent = (string) $percent;
+            if (Money::cmp($percent, '0.000') < 0 || Money::cmp($percent, '100.000') > 0) {
+                throw new InvalidArgumentException('سهم معرف باید بین ۰ تا ۱۰۰ درصد باشد.');
+            }
+            $total = Money::add($total, $percent);
+        }
+
+        if (Money::cmp($total, '0.000') <= 0 || Money::cmp($total, '100.000') > 0) {
+            throw new InvalidArgumentException('مجموع سهم معرف‌ها باید بیشتر از صفر و حداکثر ۱۰۰ درصد باشد.');
+        }
     }
 }

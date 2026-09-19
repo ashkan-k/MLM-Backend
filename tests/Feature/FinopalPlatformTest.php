@@ -1393,4 +1393,448 @@ class FinopalPlatformTest extends TestCase
         $preview = $this->getJson('/api/shared-links/token/'.$created['token'])->assertOk();
         $this->assertSame('gateway_sale', $preview->json('type'));
     }
+
+    public function test_solo_sale_credits_exact_amounts_for_all_chain_roles(): void
+    {
+        $profit = '100000.000';
+        $tx = $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-seed-solo-0001',
+            'authority' => 'FP_AUDIT_SOLO_AMOUNTS',
+            'amount' => 1000000,
+            'profit' => 100000,
+            'currency' => 'IRT',
+            'status' => 'OK',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk();
+
+        $txId = (int) $tx->json('id');
+        $byRole = Commission::query()
+            ->where('finopal_transaction_id', $txId)
+            ->with('role')
+            ->get()
+            ->groupBy(fn ($c) => $c->role->slug)
+            ->map(fn ($rows) => [
+                'percent' => (string) $rows->first()->commission_percent,
+                'amount' => (string) $rows->sum(fn ($r) => (float) $r->commission_amount),
+                'count' => $rows->count(),
+            ]);
+
+        $this->assertSame('15.000', $byRole['representative']['percent']);
+        // ۱۵٪ از سود − ۲٪ سهم معرف (از سهم همان نماینده) = ۱۳٬۰۰۰
+        $this->assertEqualsWithDelta(13000.0, (float) $byRole['representative']['amount'], 0.001);
+
+        $this->assertSame('2.000', $byRole['representative_referrer']['percent']);
+        $this->assertEqualsWithDelta(2000.0, (float) $byRole['representative_referrer']['amount'], 0.001);
+
+        $this->assertSame('6.000', $byRole['sales_manager']['percent']);
+        $this->assertEqualsWithDelta(6000.0, (float) $byRole['sales_manager']['amount'], 0.001);
+
+        $this->assertSame('4.500', $byRole['development_manager']['percent']);
+        $this->assertEqualsWithDelta(4500.0, (float) $byRole['development_manager']['amount'], 0.001);
+
+        $this->assertSame('4.000', $byRole['senior_manager']['percent']);
+        $this->assertEqualsWithDelta(4000.0, (float) $byRole['senior_manager']['amount'], 0.001);
+
+        $rep = User::query()->where('mobile', '09125555555')->firstOrFail();
+        $referrer = User::query()->where('mobile', '09124444444')->firstOrFail();
+        $sales = User::query()->where('mobile', '09123333333')->firstOrFail();
+        $dev = User::query()->where('mobile', '09122222222')->firstOrFail();
+        $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
+
+        $this->assertTrue(
+            Commission::query()->where('finopal_transaction_id', $txId)
+                ->where('user_id', $rep->id)->whereHas('role', fn ($q) => $q->where('slug', 'representative'))->exists()
+        );
+        $this->assertTrue(
+            Commission::query()->where('finopal_transaction_id', $txId)
+                ->where('user_id', $referrer->id)->whereHas('role', fn ($q) => $q->where('slug', 'representative_referrer'))->exists()
+        );
+        $this->assertTrue(
+            Commission::query()->where('finopal_transaction_id', $txId)
+                ->where('user_id', $sales->id)->whereHas('role', fn ($q) => $q->where('slug', 'sales_manager'))->exists()
+        );
+        $this->assertTrue(
+            Commission::query()->where('finopal_transaction_id', $txId)
+                ->where('user_id', $dev->id)->whereHas('role', fn ($q) => $q->where('slug', 'development_manager'))->exists()
+        );
+        $this->assertTrue(
+            Commission::query()->where('finopal_transaction_id', $txId)
+                ->where('user_id', $senior->id)->whereHas('role', fn ($q) => $q->where('slug', 'senior_manager'))->exists()
+        );
+
+        // Multi-role senior keeps credits on the senior_manager wallet, not mixed into other role wallets.
+        $seniorRepWallet = Wallet::query()->where('user_id', $senior->id)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))->first();
+        $seniorSmWallet = Wallet::query()->where('user_id', $senior->id)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'senior_manager'))->first();
+        $this->assertNotNull($seniorSmWallet);
+        $this->assertNotSame($seniorRepWallet?->id, $seniorSmWallet->id);
+    }
+
+    public function test_shared_gateway_splits_rep_shares_and_keeps_full_manager_rates(): void
+    {
+        $tx = $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-seed-share-0001',
+            'authority' => 'FP_AUDIT_SHARE_AMOUNTS',
+            'amount' => 1000000,
+            'profit' => 100000,
+            'currency' => 'IRT',
+            'status' => 'OK',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk();
+
+        $txId = (int) $tx->json('id');
+        $reps = Commission::query()
+            ->where('finopal_transaction_id', $txId)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->get();
+        $this->assertCount(2, $reps);
+        foreach ($reps as $row) {
+            $this->assertSame('7.500', (string) $row->commission_percent);
+            // هر نماینده: ۷۵۰۰ ناخالص − ۱۰۰۰ سهم معرف از برش خودش = ۶۵۰۰
+            $this->assertSame('6500.000', (string) $row->commission_amount);
+            $this->assertSame('7500.000', (string) ($row->metadata['gross_commission_amount'] ?? ''));
+            $this->assertSame('1000.000', (string) ($row->metadata['referrer_deduction_amount'] ?? ''));
+        }
+
+        $referrer = Commission::query()
+            ->where('finopal_transaction_id', $txId)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative_referrer'))
+            ->first();
+        $this->assertNotNull($referrer);
+        // Both shared reps referred by same person → attributed profit = full tx profit → 2% of total
+        $this->assertSame('2.000', (string) $referrer->commission_percent);
+        $this->assertSame('100000.000', (string) $referrer->base_amount);
+        $this->assertSame('2000.000', (string) $referrer->commission_amount);
+
+        $sm = Commission::query()
+            ->where('finopal_transaction_id', $txId)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'sales_manager'))
+            ->first();
+        $this->assertNotNull($sm);
+        $this->assertSame('6.000', (string) $sm->commission_percent);
+        $this->assertSame('6000.000', (string) $sm->commission_amount);
+    }
+
+    public function test_shared_sale_with_partial_referrers_still_posts_commissions(): void
+    {
+        $withRef = User::query()->where('mobile', '09127777777')->firstOrFail();
+        $noRef = User::query()->where('mobile', '09129999999')->firstOrFail();
+        // Ensure outsider has no referral edge for this scenario
+        \App\Models\RepresentativeReferral::query()->where('referred_user_id', $noRef->id)->delete();
+
+        $sale = app(GatewaySaleService::class)->record([
+            'external_id' => 'GW-PARTIAL-REF-1',
+            'name' => 'اشتراکی با معرف ناقص',
+            'amount' => 500000,
+            'representatives' => [
+                ['user_id' => $withRef->id, 'share_percent' => '50.000'],
+                ['user_id' => $noRef->id, 'share_percent' => '50.000'],
+            ],
+            'customer' => ['name' => 'مشتری تست', 'mobile' => '09121230999'],
+            'idempotency_key' => 'partial-ref-sale-1',
+            'status' => 'successful',
+            'merchant_code' => 'fino-partial-ref-0001',
+        ]);
+
+        $this->assertTrue($sale->referrers->isNotEmpty());
+        $refShareSum = $sale->referrers->sum(fn ($r) => (float) $r->share_percent);
+        $this->assertEqualsWithDelta(50.0, $refShareSum, 0.001);
+
+        $tx = $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-partial-ref-0001',
+            'authority' => 'FP_PARTIAL_REF_1',
+            'amount' => 500000,
+            'profit' => 100000,
+            'currency' => 'IRT',
+            'status' => 'OK',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk();
+
+        $this->assertGreaterThan(0, (int) $tx->json('commissions'));
+
+        $referrerRow = Commission::query()
+            ->where('finopal_transaction_id', $tx->json('id'))
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative_referrer'))
+            ->first();
+        $this->assertNotNull($referrerRow);
+        // فقط نیمه‌ی معرف‌دار: پایه = ۵۰٪ سود، نرخ معرف = ۲٪ → مبلغ = ۱۰۰۰
+        $this->assertSame('2.000', (string) $referrerRow->commission_percent);
+        $this->assertSame('50000.000', (string) $referrerRow->base_amount);
+        $this->assertSame('1000.000', (string) $referrerRow->commission_amount);
+        $this->assertSame('50.000', (string) ($referrerRow->metadata['referred_ownership_percent'] ?? ''));
+    }
+
+    public function test_referrer_gets_two_percent_of_referred_rep_profit_slice_not_diluted_rate(): void
+    {
+        // سناریوی کارفرما:
+        // سود ۲۰۰٬۰۰۰ — علی و سارا ۵۰/۵۰ — فقط علی معرف دارد (رضا، ۲٪)
+        // سهم سود علی = ۱۰۰٬۰۰۰ → رضا باید ۲٪ از همین ۱۰۰٬۰۰۰ = ۲٬۰۰۰ بگیرد
+        // علی همچنان پورسانت نمایندگی خودش را کامل می‌گیرد (۷.۵٪ از کل = ۱۵٬۰۰۰)
+        $ali = User::query()->where('mobile', '09127777777')->firstOrFail();
+        $sara = User::query()->where('mobile', '09129999999')->firstOrFail();
+        $reza = User::query()->where('mobile', '09124444444')->firstOrFail();
+        \App\Models\RepresentativeReferral::query()->where('referred_user_id', $sara->id)->delete();
+        \App\Models\RepresentativeReferral::query()->updateOrCreate(
+            ['referred_user_id' => $ali->id],
+            [
+                'referrer_user_id' => $reza->id,
+                'source' => 'finopal',
+                'referral_code_id' => \App\Models\ReferralCode::query()->where('user_id', $reza->id)->value('id'),
+            ]
+        );
+
+        app(GatewaySaleService::class)->record([
+            'external_id' => 'GW-REF-SLICE-200K',
+            'name' => 'اشتراکی سهم معرف از برش سود',
+            'amount' => 2000000,
+            'representatives' => [
+                ['user_id' => $ali->id, 'share_percent' => '50.000'],
+                ['user_id' => $sara->id, 'share_percent' => '50.000'],
+            ],
+            'customer' => ['name' => 'مشتری ۲۰۰ک', 'mobile' => '09121230888'],
+            'idempotency_key' => 'ref-slice-200k-1',
+            'status' => 'successful',
+            'merchant_code' => 'fino-ref-slice-200k',
+        ]);
+
+        $tx = $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-ref-slice-200k',
+            'authority' => 'FP_REF_SLICE_200K',
+            'amount' => 2000000,
+            'profit' => 200000,
+            'currency' => 'IRT',
+            'status' => 'OK',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk();
+
+        $txId = (int) $tx->json('id');
+
+        $aliRep = Commission::query()
+            ->where('finopal_transaction_id', $txId)
+            ->where('user_id', $ali->id)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->first();
+        $this->assertNotNull($aliRep);
+        $this->assertSame('7.500', (string) $aliRep->commission_percent);
+        // ناخالص ۱۵٬۰۰۰ − ۲٬۰۰۰ سهم رضا از برش علی = ۱۳٬۰۰۰
+        $this->assertSame('15000.000', (string) ($aliRep->metadata['gross_commission_amount'] ?? ''));
+        $this->assertSame('2000.000', (string) ($aliRep->metadata['referrer_deduction_amount'] ?? ''));
+        $this->assertSame('13000.000', (string) $aliRep->commission_amount);
+
+        $saraRep = Commission::query()
+            ->where('finopal_transaction_id', $txId)
+            ->where('user_id', $sara->id)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->first();
+        $this->assertNotNull($saraRep);
+        $this->assertSame('15000.000', (string) $saraRep->commission_amount);
+        $this->assertSame('0.000', (string) ($saraRep->metadata['referrer_deduction_amount'] ?? '0.000'));
+
+        $rezaRef = Commission::query()
+            ->where('finopal_transaction_id', $txId)
+            ->where('user_id', $reza->id)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative_referrer'))
+            ->first();
+        $this->assertNotNull($rezaRef);
+        $this->assertSame('2.000', (string) $rezaRef->commission_percent);
+        $this->assertSame('100000.000', (string) $rezaRef->base_amount);
+        $this->assertSame('2000.000', (string) $rezaRef->commission_amount);
+        $this->assertTrue((bool) ($rezaRef->metadata['sourced_from_representative_share'] ?? false));
+        $this->assertSame('50.000', (string) ($rezaRef->metadata['referred_ownership_percent'] ?? ''));
+
+        // مدیران همچنان از کل سود می‌گیرند و زنجیره به‌هم نمی‌ریزد
+        $sm = Commission::query()
+            ->where('finopal_transaction_id', $txId)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'sales_manager'))
+            ->first();
+        $this->assertNotNull($sm);
+        $this->assertSame('6.000', (string) $sm->commission_percent);
+        $this->assertSame('12000.000', (string) $sm->commission_amount);
+    }
+
+    public function test_monthly_bonus_auto_posts_for_rep_sm_and_dm_when_qualified(): void
+    {
+        \App\Models\SystemSetting::query()->updateOrCreate(
+            ['key' => 'qualification_thresholds'],
+            [
+                'value' => [
+                    'representative_points' => 50,
+                    'sales_manager_gateways' => 1,
+                    'development_manager_gateways' => 1,
+                ],
+                'value_type' => 'json',
+                'is_public' => true,
+            ]
+        );
+
+        $profit = '200000.000';
+        $tx = $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-seed-solo-0001',
+            'authority' => 'FP_BONUS_ALL_ROLES_1',
+            'amount' => 2000000,
+            'profit' => 200000,
+            'currency' => 'IRT',
+            'status' => 'OK',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk();
+
+        $this->assertGreaterThan(0, (int) $tx->json('commissions'));
+
+        $month = now()->format('Y-m');
+        $rep = User::query()->where('mobile', '09125555555')->firstOrFail();
+        $sales = User::query()->where('mobile', '09123333333')->firstOrFail();
+        $dev = User::query()->where('mobile', '09122222222')->firstOrFail();
+        $senior = User::query()->where('mobile', '09121111111')->firstOrFail();
+
+        $repRole = Role::query()->where('slug', 'representative')->firstOrFail();
+        $smRole = Role::query()->where('slug', 'sales_manager')->firstOrFail();
+        $dmRole = Role::query()->where('slug', 'development_manager')->firstOrFail();
+        $seniorRole = Role::query()->where('slug', 'senior_manager')->firstOrFail();
+
+        $repBonus = Commission::query()
+            ->where('idempotency_key', "monthly-bonus:{$rep->id}:{$repRole->id}:{$month}")
+            ->where('status', 'posted')
+            ->first();
+        $this->assertNotNull($repBonus, 'representative monthly bonus should auto-post');
+        $this->assertSame('20.000', (string) $repBonus->commission_percent);
+
+        $smBonus = Commission::query()
+            ->where('idempotency_key', "monthly-bonus:{$sales->id}:{$smRole->id}:{$month}")
+            ->where('status', 'posted')
+            ->first();
+        $this->assertNotNull($smBonus, 'sales_manager monthly bonus should auto-post after 1 gateway');
+        $this->assertSame('8.000', (string) $smBonus->commission_percent);
+
+        $dmBonus = Commission::query()
+            ->where('idempotency_key', "monthly-bonus:{$dev->id}:{$dmRole->id}:{$month}")
+            ->where('status', 'posted')
+            ->first();
+        $this->assertNotNull($dmBonus, 'development_manager monthly bonus should auto-post after 1 gateway');
+        $this->assertSame('6.000', (string) $dmBonus->commission_percent);
+
+        // Senior has no qualification metric → no monthly bonus row
+        $this->assertFalse(
+            Commission::query()
+                ->where('idempotency_key', "monthly-bonus:{$senior->id}:{$seniorRole->id}:{$month}")
+                ->where('status', 'posted')
+                ->exists()
+        );
+
+        // Bonus amount = qualified% × attributed month profit for that role (includes this tx base)
+        $this->assertGreaterThan(0, (float) $repBonus->commission_amount);
+        $this->assertGreaterThan(0, (float) $smBonus->commission_amount);
+        $this->assertGreaterThan(0, (float) $dmBonus->commission_amount);
+    }
+
+    public function test_shared_referral_link_splits_referrer_commission_on_first_sale(): void
+    {
+        $a = User::query()->where('mobile', '09127777777')->firstOrFail();
+        $b = User::query()->where('mobile', '09128888888')->firstOrFail();
+
+        $tokenA = $this->postJson('/api/auth/login', [
+            'mobile' => '09127777777',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->json('token');
+
+        $link = $this->withToken($tokenA)->postJson('/api/shared-links', [
+            'type' => 'referral',
+            'members' => [
+                ['user_id' => $a->id, 'share_percent' => 60],
+                ['user_id' => $b->id, 'share_percent' => 40],
+            ],
+        ])->assertCreated()->json();
+
+        $tokenB = $this->postJson('/api/auth/login', [
+            'mobile' => '09128888888',
+            'password' => 'Password123!',
+            'role_slug' => 'representative',
+        ])->json('token');
+
+        $this->withToken($tokenB)
+            ->postJson('/api/shared-links/'.$link['id'].'/approve')
+            ->assertOk();
+
+        $register = $this->postJson('/api/auth/register', [
+            'name' => 'نماینده از لینک اشتراکی معرف',
+            'mobile' => '09121234567',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+            'shared_link_token' => $link['token'],
+        ])->assertCreated();
+
+        $newRepId = (int) $register->json('user.id');
+        $referral = \App\Models\RepresentativeReferral::query()
+            ->with('shareMembers')
+            ->where('referred_user_id', $newRepId)
+            ->first();
+        $this->assertNotNull($referral);
+        $this->assertCount(2, $referral->shareMembers);
+
+        $sale = app(GatewaySaleService::class)->record([
+            'external_id' => 'GW-SHARED-REF-TX-1',
+            'name' => 'فروش نماینده لینک اشتراکی معرف',
+            'amount' => 800000,
+            'representative_user_id' => $newRepId,
+            'customer' => ['name' => 'مشتری', 'mobile' => '09121231111'],
+            'idempotency_key' => 'shared-ref-tx-sale-1',
+            'status' => 'successful',
+            'merchant_code' => 'fino-shared-ref-tx-0001',
+        ]);
+
+        $tx = $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'merchant_id' => 'fino-shared-ref-tx-0001',
+            'authority' => 'FP_SHARED_REF_TX_1',
+            'amount' => 800000,
+            'profit' => 100000,
+            'currency' => 'IRT',
+            'status' => 'OK',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk();
+
+        $refRows = Commission::query()
+            ->where('finopal_transaction_id', $tx->json('id'))
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative_referrer'))
+            ->get()
+            ->keyBy('user_id');
+
+        $this->assertCount(2, $refRows);
+        // هر عضو لینک معرف: نرخ ۲٪ روی برش سود خودش (۶۰٪ و ۴۰٪ از کل)
+        $this->assertSame('2.000', (string) $refRows[$a->id]->commission_percent);
+        $this->assertSame('60000.000', (string) $refRows[$a->id]->base_amount);
+        $this->assertSame('1200.000', (string) $refRows[$a->id]->commission_amount);
+        $this->assertSame('2.000', (string) $refRows[$b->id]->commission_percent);
+        $this->assertSame('40000.000', (string) $refRows[$b->id]->base_amount);
+        $this->assertSame('800.000', (string) $refRows[$b->id]->commission_amount);
+
+        $newRepCommission = Commission::query()
+            ->where('finopal_transaction_id', $tx->json('id'))
+            ->where('user_id', $newRepId)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
+            ->first();
+        $this->assertNotNull($newRepCommission);
+        // ۱۵٬۰۰۰ ناخالص − ۲٬۰۰۰ (۱۲۰۰+۸۰۰) کسر معرف = ۱۳٬۰۰۰
+        $this->assertSame('15000.000', (string) ($newRepCommission->metadata['gross_commission_amount'] ?? ''));
+        $this->assertSame('2000.000', (string) ($newRepCommission->metadata['referrer_deduction_amount'] ?? ''));
+        $this->assertSame('13000.000', (string) $newRepCommission->commission_amount);
+    }
 }
