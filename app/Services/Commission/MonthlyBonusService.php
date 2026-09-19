@@ -218,16 +218,17 @@ class MonthlyBonusService
             : '0.000';
 
         $guide = array_values(array_filter($progress['guide'] ?? []));
+        $percentLabel = $this->formatPercentLabel($bonusPercent);
         if ($required > 0 && Money::cmp($bonusPercent, '0') > 0) {
             if ($qualified) {
                 $guide[] = 'شما اکنون واجد شرایط پاداش این ماه هستید؛ مبلغ قابل واریز '
                     .Money::normalize($bonusAmount, 3)
-                    .' ('.$bonusPercent.'٪ از مجموع سود ماه '
+                    .' ('.$percentLabel.' از مجموع سود ماه '
                     .Money::normalize($profitSum, 3)
                     .') است.';
             } else {
-                $guide[] = 'پس از تکمیل حد نصاب، '.$bonusPercent
-                    .'٪ از مجموع سود تراکنش‌های همین ماه به‌عنوان پاداش ماهانه محاسبه و واریز می‌شود.';
+                $guide[] = 'پس از تکمیل حد نصاب، '.$percentLabel
+                    .' از مجموع سود تراکنش‌های همین ماه به‌عنوان پاداش ماهانه محاسبه و واریز می‌شود.';
             }
         }
 
@@ -455,6 +456,17 @@ class MonthlyBonusService
             'count' => (int) ($agg->cnt ?? 0),
             'amount' => Money::normalize((string) ($agg->total ?? '0'), 3),
         ];
+    }
+
+    private function formatPercentLabel(string $percent): string
+    {
+        $normalized = Money::normalize($percent, 3);
+        $rounded = round((float) $normalized, 2);
+        if (abs($rounded - round($rounded)) < 0.0000001) {
+            return ((string) (int) round($rounded)).'٪';
+        }
+
+        return rtrim(rtrim(number_format($rounded, 2, '.', ''), '0'), '.').'٪';
     }
 
     private function monthlyAttributedProfit(int $userId, int $roleId, CarbonInterface $from, CarbonInterface $to): string
