@@ -7,6 +7,8 @@ use Illuminate\Console\Command;
 
 class SeedEmptyOrgLabCommand extends Command
 {
+    use SkipsBrokenConsoleConfirm;
+
     protected $signature = 'finopal:seed-empty-org
         {--purge : همه کاربران به‌جز superuser و داده‌های عملیاتی‌شان را پاک می‌کند، سپس فقط یک مدیر ارشد می‌سازد}
         {--force : بدون پرسش تأیید اجرا شود (برای ویندوز/مسیر فارسی توصیه‌شده)}';
@@ -16,12 +18,10 @@ class SeedEmptyOrgLabCommand extends Command
     public function handle(EmptyOrgLabService $lab): int
     {
         if ($this->option('purge')) {
-            if (! $this->option('force') && $this->input->isInteractive()) {
-                if (! $this->confirm('همه کاربران غیر از superuser پاک شوند؟ این عمل برگشت‌ناپذیر است.', true)) {
-                    $this->warn('لغو شد.');
+            if (! $this->confirmedOrForced('همه کاربران غیر از superuser پاک شوند؟ این عمل برگشت‌ناپذیر است.', true)) {
+                $this->warn('لغو شد.');
 
-                    return self::SUCCESS;
-                }
+                return self::SUCCESS;
             }
             $stats = $lab->purgeNonSuperusers();
             $this->warn('پاک‌سازی انجام شد. کاربران حذف‌شده: '.$stats['deleted_users'].' | superuser نگه‌داشته: '.implode(',', $stats['kept_superuser_ids']));

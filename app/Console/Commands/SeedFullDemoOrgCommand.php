@@ -8,6 +8,8 @@ use Illuminate\Console\Command;
 
 class SeedFullDemoOrgCommand extends Command
 {
+    use SkipsBrokenConsoleConfirm;
+
     protected $signature = 'finopal:seed-full-demo
         {--purge : قبل از وارد کردن، همه کاربران غیر از superuser و داده‌های عملیاتی را پاک می‌کند (پیشنهادی)}
         {--force : بدون پرسش تأیید اجرا شود (برای ویندوز/مسیر فارسی توصیه‌شده)}';
@@ -17,12 +19,10 @@ class SeedFullDemoOrgCommand extends Command
     public function handle(EmptyOrgLabService $lab): int
     {
         if ($this->option('purge')) {
-            if (! $this->option('force') && $this->input->isInteractive()) {
-                if (! $this->confirm('همه کاربران غیر از superuser پاک شوند و دیتای کامل تستی دوباره ساخته شود؟', true)) {
-                    $this->warn('لغو شد.');
+            if (! $this->confirmedOrForced('همه کاربران غیر از superuser پاک شوند و دیتای کامل تستی دوباره ساخته شود؟', true)) {
+                $this->warn('لغو شد.');
 
-                    return self::SUCCESS;
-                }
+                return self::SUCCESS;
             }
             $stats = $lab->purgeNonSuperusers();
             $this->warn('پاک‌سازی انجام شد. کاربران حذف‌شده: '.$stats['deleted_users']);

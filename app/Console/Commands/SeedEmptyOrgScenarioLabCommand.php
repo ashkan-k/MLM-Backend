@@ -26,6 +26,8 @@ use Illuminate\Support\Facades\Hash;
  */
 class SeedEmptyOrgScenarioLabCommand extends Command
 {
+    use SkipsBrokenConsoleConfirm;
+
     protected $signature = 'finopal:seed-empty-org-lab
         {--force : بدون پرسش تأیید}';
 
@@ -37,10 +39,8 @@ class SeedEmptyOrgScenarioLabCommand extends Command
         WalletService $wallets,
         PromotionService $promotions,
     ): int {
-        if (! $this->option('force') && $this->input->isInteractive()) {
-            if (! $this->confirm('تراکنش‌های شایان و نماینده تست ارتقاء ساخته شوند؟', true)) {
-                return self::SUCCESS;
-            }
+        if (! $this->confirmedOrForced('تراکنش‌های شایان و نماینده تست ارتقاء ساخته شوند؟', true)) {
+            return self::SUCCESS;
         }
 
         $this->regeneratePredictableCodes();
