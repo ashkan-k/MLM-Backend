@@ -93,8 +93,8 @@ class DatabaseSeeder extends Seeder
                 'key' => 'qualification_thresholds',
                 'value' => json_encode([
                     'representative_points' => 1000,
-                    'sales_manager_gateways' => 50,
-                    'development_manager_gateways' => 200,
+                    'sales_manager_points' => 5000,
+                    'development_manager_points' => 20000,
                 ]),
                 'value_type' => 'json',
                 'is_public' => true,

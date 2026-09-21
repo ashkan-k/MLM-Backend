@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\GeoController;
 use App\Http\Controllers\Api\MonthlyBonusController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
+use App\Http\Controllers\Api\PointsController;
 use App\Http\Controllers\Api\PromotionController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\SuperuserController;
@@ -49,6 +50,9 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/commissions', [GatewayController::class, 'commissions']);
         Route::get('/monthly-bonus', [MonthlyBonusController::class, 'show']);
         Route::post('/monthly-bonus/pay', [MonthlyBonusController::class, 'pay']);
+        Route::get('/points/monitor', [PointsController::class, 'monitor']);
+        Route::get('/points/detail', [PointsController::class, 'detail']);
+        Route::post('/points/adjust', [PointsController::class, 'adjust']);
 
         Route::get('/referrals/codes', [ReferralController::class, 'codes']);
         Route::get('/referrals', [ReferralController::class, 'referrals']);

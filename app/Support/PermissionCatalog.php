@@ -16,6 +16,7 @@ class PermissionCatalog
             'page.gateways' => ['name' => 'صفحه درگاه‌ها', 'roles' => '*'],
             'page.commissions' => ['name' => 'صفحه پورسانت', 'roles' => '*'],
             'page.monthly_bonus' => ['name' => 'صفحه پاداش ماهانه', 'roles' => '*'],
+            'page.points' => ['name' => 'صفحه مانیتورینگ امتیاز', 'roles' => ['senior_manager']],
             'page.wallet' => ['name' => 'صفحه کیف پول', 'roles' => '*'],
             'page.finance' => ['name' => 'صفحه گزارش تجمیعی', 'roles' => '*'],
             'page.withdrawals' => ['name' => 'صفحه برداشت', 'roles' => '*'],

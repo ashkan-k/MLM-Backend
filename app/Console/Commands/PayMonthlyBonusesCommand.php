@@ -12,7 +12,7 @@ class PayMonthlyBonusesCommand extends Command
         {--month= : ماه به صورت YYYY-MM (پیش‌فرض: ماه جاری)}
         {--force : بدون پرسش تأیید}';
 
-    protected $description = 'محاسبه و واریز پاداش ماهانه نقش‌ها برای ماه مشخص (بر اساس حد نصاب و درصد پاداش × مجموع سود ماه)';
+    protected $description = 'محاسبه و واریز پاداش ماهانه + انتقال مابقی پرداخت‌نشده به کیف مدیر ارشد';
 
     public function handle(MonthlyBonusService $bonuses): int
     {
@@ -33,6 +33,7 @@ class PayMonthlyBonusesCommand extends Command
 
         $count = $bonuses->refreshMonth($at);
         $this->info("پاداش ماهانه برای {$count} ترکیب کاربر/نقش در ماه {$month} به‌روز شد.");
+        $this->comment('مابقی پاداش‌های پرداخت‌نشده (در صورت وجود) به کیف مدیر ارشد واریز شد.');
 
         return self::SUCCESS;
     }

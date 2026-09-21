@@ -556,8 +556,8 @@ class FinopalPlatformTest extends TestCase
             'key' => 'qualification_thresholds',
             'value' => [
                 'representative_points' => 1000,
-                'sales_manager_gateways' => 50,
-                'development_manager_gateways' => 200,
+                'sales_manager_points' => 5000,
+                'development_manager_points' => 20000,
             ],
         ])->assertOk();
 
@@ -746,8 +746,8 @@ class FinopalPlatformTest extends TestCase
             [
                 'value' => [
                     'representative_points' => 100,
-                    'sales_manager_gateways' => 50,
-                    'development_manager_gateways' => 200,
+                    'sales_manager_points' => 5000,
+                    'development_manager_points' => 20000,
                 ],
                 'value_type' => 'json',
                 'is_public' => true,
@@ -786,7 +786,7 @@ class FinopalPlatformTest extends TestCase
             ->first();
 
         $this->assertNotNull($bonus, 'monthly bonus should post after qualification');
-        $this->assertSame('20.000', (string) $bonus->commission_percent);
+        $this->assertSame('5.000', (string) $bonus->commission_percent);
         $this->assertSame('monthly_bonus', $bonus->metadata['type'] ?? null);
         $this->assertNull($bonus->gateway_sale_id);
         $this->assertSame($sale->id, $perTx->gateway_sale_id);
@@ -828,14 +828,18 @@ class FinopalPlatformTest extends TestCase
         $existingBonus = Commission::query()->where('idempotency_key', $key)->where('status', 'posted')->first();
         $this->assertNotNull($existingBonus);
 
-        // Reverse current-month bonus by temporarily failing qualification, then restore and pay.
+        // بدون درگاه واجد شرایط دائمی، پاداش نباید بماند (شبیه‌سازی ماه بدون حد نصاب)
+        \App\Models\GatewayBonusEligibility::query()
+            ->where('user_id', $perTx->user_id)
+            ->where('role_id', $perTx->role_id)
+            ->delete();
         \App\Models\SystemSetting::query()->updateOrCreate(
             ['key' => 'qualification_thresholds'],
             [
                 'value' => [
                     'representative_points' => 999999,
-                    'sales_manager_gateways' => 50,
-                    'development_manager_gateways' => 200,
+                    'sales_manager_points' => 5000,
+                    'development_manager_points' => 20000,
                 ],
                 'value_type' => 'json',
                 'is_public' => true,
@@ -855,8 +859,8 @@ class FinopalPlatformTest extends TestCase
             [
                 'value' => [
                     'representative_points' => 100,
-                    'sales_manager_gateways' => 50,
-                    'development_manager_gateways' => 200,
+                    'sales_manager_points' => 5000,
+                    'development_manager_points' => 20000,
                 ],
                 'value_type' => 'json',
                 'is_public' => true,
@@ -1423,8 +1427,8 @@ class FinopalPlatformTest extends TestCase
             ]);
 
         $this->assertSame('15.000', $byRole['representative']['percent']);
-        // ۱۵٪ از سود − ۲٪ سهم معرف (از سهم همان نماینده) = ۱۳٬۰۰۰
-        $this->assertEqualsWithDelta(13000.0, (float) $byRole['representative']['amount'], 0.001);
+        // ۱۵٪ کامل از سود؛ معرف جداگانه ۲٪ از کل
+        $this->assertEqualsWithDelta(15000.0, (float) $byRole['representative']['amount'], 0.001);
 
         $this->assertSame('2.000', $byRole['representative_referrer']['percent']);
         $this->assertEqualsWithDelta(2000.0, (float) $byRole['representative_referrer']['amount'], 0.001);
@@ -1497,10 +1501,7 @@ class FinopalPlatformTest extends TestCase
         $this->assertCount(2, $reps);
         foreach ($reps as $row) {
             $this->assertSame('7.500', (string) $row->commission_percent);
-            // هر نماینده: ۷۵۰۰ ناخالص − ۱۰۰۰ سهم معرف از برش خودش = ۶۵۰۰
-            $this->assertSame('6500.000', (string) $row->commission_amount);
-            $this->assertSame('7500.000', (string) ($row->metadata['gross_commission_amount'] ?? ''));
-            $this->assertSame('1000.000', (string) ($row->metadata['referrer_deduction_amount'] ?? ''));
+            $this->assertSame('7500.000', (string) $row->commission_amount);
         }
 
         $referrer = Commission::query()
@@ -1508,7 +1509,7 @@ class FinopalPlatformTest extends TestCase
             ->whereHas('role', fn ($q) => $q->where('slug', 'representative_referrer'))
             ->first();
         $this->assertNotNull($referrer);
-        // Both shared reps referred by same person → attributed profit = full tx profit → 2% of total
+        // هر دو شریک یک معرف دارند → ۲٪ یک‌بار از کل سود
         $this->assertSame('2.000', (string) $referrer->commission_percent);
         $this->assertSame('100000.000', (string) $referrer->base_amount);
         $this->assertSame('2000.000', (string) $referrer->commission_amount);
@@ -1567,19 +1568,18 @@ class FinopalPlatformTest extends TestCase
             ->whereHas('role', fn ($q) => $q->where('slug', 'representative_referrer'))
             ->first();
         $this->assertNotNull($referrerRow);
-        // فقط نیمه‌ی معرف‌دار: پایه = ۵۰٪ سود، نرخ معرف = ۲٪ → مبلغ = ۱۰۰۰
+        // فقط یکی از دو شریک معرف دارد → همچنان ۲٪ از کل سود تراکنش
         $this->assertSame('2.000', (string) $referrerRow->commission_percent);
-        $this->assertSame('50000.000', (string) $referrerRow->base_amount);
-        $this->assertSame('1000.000', (string) $referrerRow->commission_amount);
-        $this->assertSame('50.000', (string) ($referrerRow->metadata['referred_ownership_percent'] ?? ''));
+        $this->assertSame('100000.000', (string) $referrerRow->base_amount);
+        $this->assertSame('2000.000', (string) $referrerRow->commission_amount);
+        $this->assertTrue((bool) ($referrerRow->metadata['calculated_from_total_profit'] ?? false));
     }
 
-    public function test_referrer_gets_two_percent_of_referred_rep_profit_slice_not_diluted_rate(): void
+    public function test_referrer_gets_two_percent_of_total_profit_not_ownership_slice(): void
     {
-        // سناریوی کارفرما:
-        // سود ۲۰۰٬۰۰۰ — علی و سارا ۵۰/۵۰ — فقط علی معرف دارد (رضا، ۲٪)
-        // سهم سود علی = ۱۰۰٬۰۰۰ → رضا باید ۲٪ از همین ۱۰۰٬۰۰۰ = ۲٬۰۰۰ بگیرد
-        // علی همچنان پورسانت نمایندگی خودش را کامل می‌گیرد (۷.۵٪ از کل = ۱۵٬۰۰۰)
+        // سود ۲۰۰٬۰۰۰ — علی و سارا ۵۰/۵۰ — فقط علی معرف دارد (رضا)
+        // رضا: ۲٪ از کل سود = ۴٬۰۰۰ (نه از برش ۱۰۰٬۰۰۰ علی)
+        // علی و سارا هر کدام ۱۵٬۰۰۰ پورسانت نماینده
         $ali = User::query()->where('mobile', '09127777777')->firstOrFail();
         $sara = User::query()->where('mobile', '09129999999')->firstOrFail();
         $reza = User::query()->where('mobile', '09124444444')->firstOrFail();
@@ -1594,23 +1594,23 @@ class FinopalPlatformTest extends TestCase
         );
 
         app(GatewaySaleService::class)->record([
-            'external_id' => 'GW-REF-SLICE-200K',
-            'name' => 'اشتراکی سهم معرف از برش سود',
+            'external_id' => 'GW-REF-TOTAL-200K',
+            'name' => 'اشتراکی معرف از کل سود',
             'amount' => 2000000,
             'representatives' => [
                 ['user_id' => $ali->id, 'share_percent' => '50.000'],
                 ['user_id' => $sara->id, 'share_percent' => '50.000'],
             ],
             'customer' => ['name' => 'مشتری ۲۰۰ک', 'mobile' => '09121230888'],
-            'idempotency_key' => 'ref-slice-200k-1',
+            'idempotency_key' => 'ref-total-200k-1',
             'status' => 'successful',
-            'merchant_code' => 'fino-ref-slice-200k',
+            'merchant_code' => 'fino-ref-total-200k',
         ]);
 
         $tx = $this->postJson('/api/webhooks/finopal/transaction', [
             'event' => 'transaction.verified',
-            'merchant_id' => 'fino-ref-slice-200k',
-            'authority' => 'FP_REF_SLICE_200K',
+            'merchant_id' => 'fino-ref-total-200k',
+            'authority' => 'FP_REF_TOTAL_200K',
             'amount' => 2000000,
             'profit' => 200000,
             'currency' => 'IRT',
@@ -1629,10 +1629,7 @@ class FinopalPlatformTest extends TestCase
             ->first();
         $this->assertNotNull($aliRep);
         $this->assertSame('7.500', (string) $aliRep->commission_percent);
-        // ناخالص ۱۵٬۰۰۰ − ۲٬۰۰۰ سهم رضا از برش علی = ۱۳٬۰۰۰
-        $this->assertSame('15000.000', (string) ($aliRep->metadata['gross_commission_amount'] ?? ''));
-        $this->assertSame('2000.000', (string) ($aliRep->metadata['referrer_deduction_amount'] ?? ''));
-        $this->assertSame('13000.000', (string) $aliRep->commission_amount);
+        $this->assertSame('15000.000', (string) $aliRep->commission_amount);
 
         $saraRep = Commission::query()
             ->where('finopal_transaction_id', $txId)
@@ -1641,7 +1638,6 @@ class FinopalPlatformTest extends TestCase
             ->first();
         $this->assertNotNull($saraRep);
         $this->assertSame('15000.000', (string) $saraRep->commission_amount);
-        $this->assertSame('0.000', (string) ($saraRep->metadata['referrer_deduction_amount'] ?? '0.000'));
 
         $rezaRef = Commission::query()
             ->where('finopal_transaction_id', $txId)
@@ -1650,12 +1646,10 @@ class FinopalPlatformTest extends TestCase
             ->first();
         $this->assertNotNull($rezaRef);
         $this->assertSame('2.000', (string) $rezaRef->commission_percent);
-        $this->assertSame('100000.000', (string) $rezaRef->base_amount);
-        $this->assertSame('2000.000', (string) $rezaRef->commission_amount);
-        $this->assertTrue((bool) ($rezaRef->metadata['sourced_from_representative_share'] ?? false));
-        $this->assertSame('50.000', (string) ($rezaRef->metadata['referred_ownership_percent'] ?? ''));
+        $this->assertSame('200000.000', (string) $rezaRef->base_amount);
+        $this->assertSame('4000.000', (string) $rezaRef->commission_amount);
+        $this->assertTrue((bool) ($rezaRef->metadata['calculated_from_total_profit'] ?? false));
 
-        // مدیران همچنان از کل سود می‌گیرند و زنجیره به‌هم نمی‌ریزد
         $sm = Commission::query()
             ->where('finopal_transaction_id', $txId)
             ->whereHas('role', fn ($q) => $q->where('slug', 'sales_manager'))
@@ -1671,9 +1665,9 @@ class FinopalPlatformTest extends TestCase
             ['key' => 'qualification_thresholds'],
             [
                 'value' => [
-                    'representative_points' => 50,
-                    'sales_manager_gateways' => 1,
-                    'development_manager_gateways' => 1,
+                    'representative_points' => 100,
+                    'sales_manager_points' => 100,
+                    'development_manager_points' => 100,
                 ],
                 'value_type' => 'json',
                 'is_public' => true,
@@ -1712,21 +1706,21 @@ class FinopalPlatformTest extends TestCase
             ->where('status', 'posted')
             ->first();
         $this->assertNotNull($repBonus, 'representative monthly bonus should auto-post');
-        $this->assertSame('20.000', (string) $repBonus->commission_percent);
+        $this->assertSame('5.000', (string) $repBonus->commission_percent);
 
         $smBonus = Commission::query()
             ->where('idempotency_key', "monthly-bonus:{$sales->id}:{$smRole->id}:{$month}")
             ->where('status', 'posted')
             ->first();
         $this->assertNotNull($smBonus, 'sales_manager monthly bonus should auto-post after 1 gateway');
-        $this->assertSame('8.000', (string) $smBonus->commission_percent);
+        $this->assertSame('2.000', (string) $smBonus->commission_percent);
 
         $dmBonus = Commission::query()
             ->where('idempotency_key', "monthly-bonus:{$dev->id}:{$dmRole->id}:{$month}")
             ->where('status', 'posted')
             ->first();
         $this->assertNotNull($dmBonus, 'development_manager monthly bonus should auto-post after 1 gateway');
-        $this->assertSame('6.000', (string) $dmBonus->commission_percent);
+        $this->assertSame('1.500', (string) $dmBonus->commission_percent);
 
         // Senior has no qualification metric → no monthly bonus row
         $this->assertFalse(
@@ -1736,7 +1730,7 @@ class FinopalPlatformTest extends TestCase
                 ->exists()
         );
 
-        // Bonus amount = qualified% × attributed month profit for that role (includes this tx base)
+        // Bonus amount = (qualified − base)% × attributed profits after threshold
         $this->assertGreaterThan(0, (float) $repBonus->commission_amount);
         $this->assertGreaterThan(0, (float) $smBonus->commission_amount);
         $this->assertGreaterThan(0, (float) $dmBonus->commission_amount);
@@ -1818,12 +1812,12 @@ class FinopalPlatformTest extends TestCase
             ->keyBy('user_id');
 
         $this->assertCount(2, $refRows);
-        // هر عضو لینک معرف: نرخ ۲٪ روی برش سود خودش (۶۰٪ و ۴۰٪ از کل)
+        // ۲٪ از کل سود بین اعضای لینک معرف ۶۰/۴۰ تقسیم می‌شود
         $this->assertSame('2.000', (string) $refRows[$a->id]->commission_percent);
-        $this->assertSame('60000.000', (string) $refRows[$a->id]->base_amount);
+        $this->assertSame('100000.000', (string) $refRows[$a->id]->base_amount);
         $this->assertSame('1200.000', (string) $refRows[$a->id]->commission_amount);
         $this->assertSame('2.000', (string) $refRows[$b->id]->commission_percent);
-        $this->assertSame('40000.000', (string) $refRows[$b->id]->base_amount);
+        $this->assertSame('100000.000', (string) $refRows[$b->id]->base_amount);
         $this->assertSame('800.000', (string) $refRows[$b->id]->commission_amount);
 
         $newRepCommission = Commission::query()
@@ -1832,9 +1826,6 @@ class FinopalPlatformTest extends TestCase
             ->whereHas('role', fn ($q) => $q->where('slug', 'representative'))
             ->first();
         $this->assertNotNull($newRepCommission);
-        // ۱۵٬۰۰۰ ناخالص − ۲٬۰۰۰ (۱۲۰۰+۸۰۰) کسر معرف = ۱۳٬۰۰۰
-        $this->assertSame('15000.000', (string) ($newRepCommission->metadata['gross_commission_amount'] ?? ''));
-        $this->assertSame('2000.000', (string) ($newRepCommission->metadata['referrer_deduction_amount'] ?? ''));
-        $this->assertSame('13000.000', (string) $newRepCommission->commission_amount);
+        $this->assertSame('15000.000', (string) $newRepCommission->commission_amount);
     }
 }

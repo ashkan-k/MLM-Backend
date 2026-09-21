@@ -25,9 +25,9 @@ class CommissionDistributor
     {
         $this->assertShares($sale->representatives);
 
-        // Referrer shares are weighted by each selling rep's ownership slice.
+        // Referrer shares may be weighted; total must stay within 0..100.
         // When only some shared reps have a referrer, the total is intentionally < 100%
-        // (unreferred portion pays no referrer commission). Requiring exactly 100%
+        // (unreferred portion pays no separate referrer). Requiring exactly 100%
         // would abort the entire transaction commission run.
         if ($sale->referrers->isNotEmpty()) {
             $this->assertReferrerSharesWithinBounds($sale->referrers);

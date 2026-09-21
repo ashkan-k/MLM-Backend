@@ -7,6 +7,7 @@ use App\Models\GatewaySaleReview;
 use App\Models\Notification;
 use App\Models\User;
 use App\Services\Audit\AuditService;
+use App\Services\Commission\QualificationService;
 use App\Services\Organization\OrganizationTreeService;
 use Illuminate\Support\Facades\DB;
 
@@ -15,6 +16,7 @@ class GatewayReviewService
     public function __construct(
         private readonly OrganizationTreeService $tree,
         private readonly AuditService $audit,
+        private readonly QualificationService $qualification,
     ) {}
 
     public function canInspect(User $actor, GatewaySale $sale): bool
@@ -118,10 +120,30 @@ class GatewayReviewService
                     'درگاه تایید شد',
                     "درگاه «{$sale->gateway?->name}» با کد مرچنت فاینوپال تایید شد. پورسانت پس از هر تراکنش موفق این درگاه محاسبه می‌شود."
                 );
+                $this->syncBonusEligibilityAfterApproval($sale->fresh(['representatives', 'managers.role']));
             }
 
             return $this->fresh($sale);
         });
+    }
+
+    private function syncBonusEligibilityAfterApproval(GatewaySale $sale): void
+    {
+        $at = $sale->sold_at ?? now();
+        foreach ($sale->representatives as $row) {
+            if ($row->user) {
+                $role = \App\Models\Role::query()->where('slug', 'representative')->first();
+                if ($role) {
+                    $this->qualification->syncPermanentEligibilities('representative', $row->user, $role->id, $at);
+                }
+            }
+        }
+        foreach ($sale->managers as $row) {
+            $slug = $row->role?->slug;
+            if ($slug && $row->user && in_array($slug, ['sales_manager', 'development_manager'], true)) {
+                $this->qualification->syncPermanentEligibilities($slug, $row->user, (int) $row->role_id, $at);
+            }
+        }
     }
 
     public function notifySubmitted(GatewaySale $sale): void

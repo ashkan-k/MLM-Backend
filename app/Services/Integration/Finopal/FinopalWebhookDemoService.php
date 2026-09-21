@@ -293,18 +293,6 @@ class FinopalWebhookDemoService
         foreach ($sale->representatives as $row) {
             $share = (string) $row->share_percent;
             $percent = $this->resolvedSharedPercent('representative', $share, $at);
-            $gross = Money::percentOf($profitBase, $percent);
-            $slice = Money::percentOf($profitBase, $share);
-            $deduction = '0.000';
-            $referral = \App\Models\RepresentativeReferral::query()
-                ->with('shareMembers')
-                ->where('referred_user_id', $row->user_id)
-                ->first();
-            if ($referral) {
-                $refRate = $this->resolvedPercent('representative_referrer', $at);
-                $deduction = Money::percentOf($slice, $refRate);
-            }
-            $net = Money::sub($gross, $deduction);
             $rows[] = [
                 'user' => $row->user?->name,
                 'mobile' => $row->user?->mobile,
@@ -313,23 +301,49 @@ class FinopalWebhookDemoService
                 'percent' => Money::normalize($percent, 3),
                 'share_note' => $share,
                 'base' => Money::normalize($profitBase, 3),
-                'amount' => Money::normalize($net, 3),
-                'gross_amount' => Money::normalize($gross, 3),
-                'referrer_deduction' => Money::normalize($deduction, 3),
+                'amount' => Money::normalize(Money::percentOf($profitBase, $percent), 3),
             ];
         }
 
-        foreach ($sale->referrers as $row) {
-            $rate = $this->resolvedPercent('representative_referrer', $at);
-            $attributed = Money::percentOf($profitBase, (string) $row->share_percent);
-            $rows[] = $this->row(
-                $row->user,
-                'representative_referrer',
-                'نماینده معرف',
-                $rate,
-                $attributed,
-                (string) $row->share_percent
-            );
+        // Mirror engine: 2% of total profit once per unique primary referrer
+        $refRate = $this->resolvedPercent('representative_referrer', $at);
+        $pool = Money::percentOf($profitBase, $refRate);
+        $seenPrimary = [];
+        $refTotals = [];
+        foreach ($sale->representatives as $row) {
+            $referral = \App\Models\RepresentativeReferral::query()
+                ->with('shareMembers')
+                ->where('referred_user_id', $row->user_id)
+                ->first();
+            if (! $referral) {
+                continue;
+            }
+            $primaryId = (int) $referral->referrer_user_id;
+            if (isset($seenPrimary[$primaryId])) {
+                continue;
+            }
+            $seenPrimary[$primaryId] = true;
+            $members = $referral->shareMembers->isNotEmpty()
+                ? $referral->shareMembers
+                : collect([(object) ['user_id' => $primaryId, 'share_percent' => '100.000']]);
+            foreach ($members as $member) {
+                $mid = (int) $member->user_id;
+                $part = Money::percentOf($pool, (string) $member->share_percent);
+                $refTotals[$mid] = Money::add($refTotals[$mid] ?? '0.000', $part);
+            }
+        }
+        foreach ($refTotals as $userId => $amount) {
+            $user = User::query()->find($userId);
+            $rows[] = [
+                'user' => $user?->name,
+                'mobile' => $user?->mobile,
+                'role_slug' => 'representative_referrer',
+                'role_label' => 'نماینده معرف',
+                'percent' => Money::normalize($refRate, 3),
+                'share_note' => '100.000',
+                'base' => Money::normalize($profitBase, 3),
+                'amount' => Money::normalize($amount, 3),
+            ];
         }
 
         foreach ($sale->managers as $row) {

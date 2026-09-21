@@ -84,6 +84,12 @@ class EmptyOrgLabService
                 DB::table('conversations')->delete();
             }
 
+            if (Schema::hasTable('gateway_bonus_eligibilities')) {
+                DB::table('gateway_bonus_eligibilities')->delete();
+            }
+            if (Schema::hasTable('user_point_adjustments')) {
+                DB::table('user_point_adjustments')->delete();
+            }
             if (Schema::hasTable('gateway_sale_reviews')) {
                 DB::table('gateway_sale_reviews')->delete();
             }

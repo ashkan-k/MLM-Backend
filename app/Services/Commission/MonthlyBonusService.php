@@ -13,10 +13,12 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Monthly role bonus (پاداش ماهانه):
- * - Per-transaction commissions always use base percent.
- * - If the user meets that role's qualification thresholds for the calendar month,
- *   credit: monthly-bonus percent × sum(attributed transaction profits this month).
- * - Recalculated within the month as profits grow; resets when the month changes.
+ * - Per-tx commissions always use base %.
+ * - Qualification points = 100 × successful gateway registrations this calendar month
+ *   (rep: own; SM/DM: own + downline). Month counter resets each month.
+ * - Hitting the month threshold permanently marks that month's counted gateways as bonus-eligible.
+ * - Bonus = (qualified% − base%) × attributed profits on permanently eligible gateways (this month).
+ * - Unpaid remainder (profits on non-eligible gateways) → senior_manager wallet.
  */
 class MonthlyBonusService
 {
@@ -45,13 +47,11 @@ class MonthlyBonusService
             return null;
         }
 
-        // درصد پاداش ماهانه (در پنل: «درصد پاداش ماهانه») × مجموع سود ماه
-        $bonusPercent = Money::normalize((string) $version->qualified_percent);
+        $bonusPercent = $this->bonusDeltaPercent($version);
         if (Money::cmp($bonusPercent, '0') <= 0) {
             return null;
         }
 
-        // Roles without a monthly qualification metric never get this bonus
         $progress = $this->qualification->progress($roleSlug, $user, $role->id, $at);
         if ((float) ($progress['required'] ?? 0) <= 0) {
             return null;
@@ -61,9 +61,16 @@ class MonthlyBonusService
 
         return DB::transaction(function () use ($user, $role, $roleSlug, $version, $bonusPercent, $at, $monthStart, $monthEnd, $key) {
             $existing = Commission::query()->where('idempotency_key', $key)->lockForUpdate()->first();
-            $qualified = $this->qualification->isQualified($roleSlug, $user, $role->id, $at);
 
-            if (! $qualified) {
+            // قفل دائمی درگاه‌های این ماه در صورت رسیدن به حد نصاب امتیاز
+            $this->qualification->syncPermanentEligibilities($roleSlug, $user, $role->id, $at);
+
+            $eligibleIds = $this->qualification->permanentEligibleSaleIds($user->id, $role->id);
+            $profitSum = $eligibleIds === []
+                ? '0.000'
+                : $this->monthlyAttributedProfit($user->id, $role->id, $monthStart, $monthEnd, $eligibleIds);
+
+            if ($eligibleIds === [] || Money::cmp($profitSum, '0') <= 0) {
                 if ($existing && $existing->status === 'posted') {
                     $this->reverse($existing);
                 }
@@ -71,9 +78,7 @@ class MonthlyBonusService
                 return $existing?->fresh();
             }
 
-            $profitSum = $this->monthlyAttributedProfit($user->id, $role->id, $monthStart, $monthEnd);
             $amount = $this->calculator->amount($profitSum, $bonusPercent);
-
             if (Money::cmp($amount, '0') <= 0) {
                 if ($existing && $existing->status === 'posted') {
                     $this->reverse($existing);
@@ -87,7 +92,10 @@ class MonthlyBonusService
                 'type' => 'monthly_bonus',
                 'month' => $monthStart->format('Y-m'),
                 'bonus_percent' => $bonusPercent,
+                'qualified_percent' => Money::normalize((string) $version->qualified_percent),
+                'base_percent' => Money::normalize((string) $version->percent),
                 'profit_sum' => $profitSum,
+                'eligible_gateways' => count($eligibleIds),
                 'qualified' => true,
             ];
 
@@ -163,8 +171,6 @@ class MonthlyBonusService
     }
 
     /**
-     * Refresh bonuses for every user/role that had non-bonus commissions in the month.
-     *
      * @return int number of roles refreshed
      */
     public function refreshMonth(?CarbonInterface $at = null): int
@@ -178,6 +184,7 @@ class MonthlyBonusService
             ->where('created_at', '>=', $monthStart)
             ->where('created_at', '<=', $monthEnd)
             ->where('idempotency_key', 'not like', 'monthly-bonus:%')
+            ->where('idempotency_key', 'not like', 'monthly-bonus-residual:%')
             ->groupBy('user_id', 'role_id')
             ->get();
 
@@ -192,7 +199,158 @@ class MonthlyBonusService
             $count++;
         }
 
+        $this->settleUnpaidToSenior($at);
+
         return $count;
+    }
+
+    /**
+     * مابقی پاداش ماهانه پرداخت‌نشده (نرسیده به حد نصاب یا سود قبل از حد نصاب) → کیف مدیر ارشد.
+     */
+    public function settleUnpaidToSenior(?CarbonInterface $at = null): ?Commission
+    {
+        $at = $at ? $at->copy() : now();
+        $monthStart = $at->copy()->startOfMonth();
+        $monthEnd = $at->copy()->endOfMonth();
+        $monthKey = $monthStart->format('Y-m');
+        $bonusRoles = ['representative', 'sales_manager', 'development_manager'];
+
+        $seniorRole = Role::query()->where('slug', 'senior_manager')->first();
+        if (! $seniorRole) {
+            return null;
+        }
+        $senior = User::query()
+            ->whereHas('roles', fn ($q) => $q->where('slug', 'senior_manager'))
+            ->orderBy('id')
+            ->first();
+        if (! $senior) {
+            return null;
+        }
+
+        $residual = '0.000';
+        $details = [];
+
+        $pairs = Commission::query()
+            ->select('user_id', 'role_id')
+            ->where('created_at', '>=', $monthStart)
+            ->where('created_at', '<=', $monthEnd)
+            ->where('idempotency_key', 'not like', 'monthly-bonus:%')
+            ->where('idempotency_key', 'not like', 'monthly-bonus-residual:%')
+            ->whereHas('role', fn ($q) => $q->whereIn('slug', $bonusRoles))
+            ->groupBy('user_id', 'role_id')
+            ->get();
+
+        foreach ($pairs as $row) {
+            $user = User::query()->find($row->user_id);
+            $role = Role::query()->find($row->role_id);
+            if (! $user || ! $role || ! in_array($role->slug, $bonusRoles, true)) {
+                continue;
+            }
+
+            $version = $this->rules->resolve($role->slug, $at);
+            if (! $version) {
+                continue;
+            }
+            $delta = $this->bonusDeltaPercent($version);
+            if (Money::cmp($delta, '0') <= 0) {
+                continue;
+            }
+
+            $this->qualification->syncPermanentEligibilities($role->slug, $user, $role->id, $at);
+            $eligibleIds = $this->qualification->permanentEligibleSaleIds($user->id, $role->id);
+            $fullProfit = $this->monthlyAttributedProfit($user->id, $role->id, $monthStart, $monthEnd);
+            if (Money::cmp($fullProfit, '0') <= 0) {
+                continue;
+            }
+
+            $bonusProfit = $eligibleIds === []
+                ? '0.000'
+                : $this->monthlyAttributedProfit($user->id, $role->id, $monthStart, $monthEnd, $eligibleIds);
+            $unpaidProfit = Money::sub($fullProfit, $bonusProfit);
+
+            if (Money::cmp($unpaidProfit, '0') <= 0) {
+                continue;
+            }
+
+            $piece = $this->calculator->amount($unpaidProfit, $delta);
+            $residual = Money::add($residual, $piece);
+            $details[] = [
+                'user_id' => $user->id,
+                'role' => $role->slug,
+                'unpaid_profit' => $unpaidProfit,
+                'amount' => $piece,
+            ];
+        }
+
+        $key = "monthly-bonus-residual:senior:{$monthKey}";
+
+        return DB::transaction(function () use ($senior, $seniorRole, $residual, $details, $key, $monthKey, $at) {
+            $existing = Commission::query()->where('idempotency_key', $key)->lockForUpdate()->first();
+            if (Money::cmp($residual, '0') <= 0) {
+                if ($existing && $existing->status === 'posted') {
+                    $this->reverse($existing);
+                }
+
+                return $existing?->fresh();
+            }
+
+            $version = $this->rules->resolve('senior_manager', $at);
+            $meta = [
+                'type' => 'monthly_bonus_residual',
+                'month' => $monthKey,
+                'details' => $details,
+            ];
+            $wallet = $this->wallets->walletFor($senior, $seniorRole);
+
+            if (! $existing) {
+                $commission = Commission::query()->create([
+                    'user_id' => $senior->id,
+                    'role_id' => $seniorRole->id,
+                    'gateway_sale_id' => null,
+                    'finopal_transaction_id' => null,
+                    'rule_version_id' => $version?->id,
+                    'base_amount' => Money::normalize($residual, 3),
+                    'commission_percent' => '0.000',
+                    'commission_amount' => Money::normalize($residual, 3),
+                    'status' => 'posted',
+                    'idempotency_key' => $key,
+                    'metadata' => $meta,
+                ]);
+                $this->wallets->credit(
+                    $wallet,
+                    Money::normalize($residual, 3),
+                    'monthly_bonus_residual',
+                    'wallet-'.$key,
+                    Commission::class,
+                    $commission->id,
+                    $meta
+                );
+
+                return $commission;
+            }
+
+            $previous = Money::normalize((string) $existing->commission_amount);
+            $diff = Money::sub($residual, $previous);
+            $existing->base_amount = Money::normalize($residual, 3);
+            $existing->commission_amount = Money::normalize($residual, 3);
+            $existing->status = 'posted';
+            $existing->metadata = $meta;
+            $existing->save();
+
+            if (Money::cmp($diff, '0') > 0) {
+                $this->wallets->credit(
+                    $wallet,
+                    $diff,
+                    'monthly_bonus_residual',
+                    'wallet-'.$key.'-adj-'.md5($residual),
+                    Commission::class,
+                    $existing->id,
+                    $meta + ['adjustment' => $diff]
+                );
+            }
+
+            return $existing->fresh();
+        });
     }
 
     public function preview(User $user, string $roleSlug, ?CarbonInterface $at = null): array
@@ -207,12 +365,16 @@ class MonthlyBonusService
 
         $version = $this->rules->resolve($roleSlug, $at);
         $progress = $this->qualification->progress($roleSlug, $user, $role->id, $at);
-        $bonusPercent = $version?->qualified_percent !== null
-            ? Money::normalize((string) $version->qualified_percent)
-            : '0.000';
+        $bonusPercent = $version ? $this->bonusDeltaPercent($version) : '0.000';
         $required = (float) ($progress['required'] ?? 0);
-        $qualified = $required > 0 && $this->qualification->isQualified($roleSlug, $user, $role->id, $at);
-        $profitSum = $this->monthlyAttributedProfit($user->id, $role->id, $monthStart, $monthEnd);
+        $this->qualification->syncPermanentEligibilities($roleSlug, $user, $role->id, $at);
+        $eligibleIds = $this->qualification->permanentEligibleSaleIds($user->id, $role->id);
+        $monthMet = $this->qualification->monthThresholdMet($roleSlug, $user, $role->id, $at);
+        $qualified = $eligibleIds !== [];
+        $profitSum = $qualified
+            ? $this->monthlyAttributedProfit($user->id, $role->id, $monthStart, $monthEnd, $eligibleIds)
+            : '0.000';
+        $fullProfit = $this->monthlyAttributedProfit($user->id, $role->id, $monthStart, $monthEnd);
         $bonusAmount = ($qualified && Money::cmp($bonusPercent, '0') > 0)
             ? $this->calculator->amount($profitSum, $bonusPercent)
             : '0.000';
@@ -221,20 +383,24 @@ class MonthlyBonusService
         $percentLabel = $this->formatPercentLabel($bonusPercent);
         if ($required > 0 && Money::cmp($bonusPercent, '0') > 0) {
             if ($qualified) {
-                $guide[] = 'شما اکنون واجد شرایط پاداش این ماه هستید؛ مبلغ قابل واریز '
+                $guide[] = 'درگاه‌های واجد شرایط دائمی: '.count($eligibleIds)
+                    .'؛ پاداش قابل واریز این ماه '
                     .Money::normalize($bonusAmount, 3)
-                    .' ('.$percentLabel.' از مجموع سود ماه '
+                    .' ('.$percentLabel.' از سود تراکنش روی همان درگاه‌ها '
                     .Money::normalize($profitSum, 3)
-                    .') است.';
+                    .').';
+            } elseif ($monthMet) {
+                $guide[] = 'حد نصاب امتیاز این ماه تکمیل شده؛ با اولین به‌روزرسانی، درگاه‌های ماه جاری دائمی می‌شوند.';
             } else {
-                $guide[] = 'پس از تکمیل حد نصاب، '.$percentLabel
-                    .' از مجموع سود تراکنش‌های همین ماه به‌عنوان پاداش ماهانه محاسبه و واریز می‌شود.';
+                $guide[] = 'پس از تکمیل حد نصاب امتیاز، درگاه‌های ثبت‌شدهٔ همین ماه برای همیشه واجد شرایط می‌شوند و '.$percentLabel
+                    .' از سود تراکنش‌های بعدی آن‌ها پاداش می‌شود. در غیر این صورت پاداش بالقوه به مدیر ارشد می‌رود.';
             }
         }
 
         return [
             'eligible' => $required > 0 && Money::cmp($bonusPercent, '0') > 0,
             'qualified' => $qualified,
+            'month_threshold_met' => $monthMet,
             'actual' => $progress['actual'] ?? 0,
             'required' => $progress['required'] ?? 0,
             'metric' => $progress['metric'] ?? null,
@@ -243,18 +409,14 @@ class MonthlyBonusService
             'points_per_full_sale' => $progress['points_per_full_sale'] ?? null,
             'guide' => $guide,
             'profit_sum' => Money::normalize($profitSum, 3),
+            'full_month_profit' => Money::normalize($fullProfit, 3),
             'bonus_percent' => $bonusPercent,
             'bonus_amount' => $bonusAmount,
+            'eligible_gateways' => count($eligibleIds),
             'month' => $monthStart->format('Y-m'),
         ];
     }
 
-    /**
-     * Lightweight downline bonus monitor for senior managers.
-     * Summary respects the same search/role filters as the list; detail is paginated.
-     *
-     * @return array{summary: array, data: list<array>, meta: array}
-     */
     public function downlineMonitor(
         User $viewer,
         int $page = 1,
@@ -327,7 +489,7 @@ class MonthlyBonusService
                     if (Money::cmp($bonusPercent, '0') <= 0) {
                         $payBlockedReason = 'درصد پاداش ماهانه این نقش صفر است.';
                     } elseif (Money::cmp($profitSum, '0') <= 0) {
-                        $payBlockedReason = 'سود تراکنش‌های این ماه برای این نقش صفر است.';
+                        $payBlockedReason = 'سود تراکنش‌های پس از حد نصاب صفر است.';
                     } elseif (Money::cmp($bonusAmount, '0') <= 0) {
                         $payBlockedReason = 'مبلغ پاداش محاسبه‌شده صفر است.';
                     }
@@ -370,9 +532,6 @@ class MonthlyBonusService
         ];
     }
 
-    /**
-     * Senior manager manually settles monthly bonus for a downline user/role.
-     */
     public function payFor(User $actor, User $target, string $roleSlug, ?CarbonInterface $at = null): Commission
     {
         $at = $at ? $at->copy() : now();
@@ -392,13 +551,13 @@ class MonthlyBonusService
 
         $preview = $this->preview($target, $roleSlug, $at);
         if (! ($preview['qualified'] ?? false)) {
-            throw new \RuntimeException('کاربر هنوز به حد نصاب پاداش این ماه نرسیده است.');
+            throw new \RuntimeException('هنوز درگاه واجد شرایط دائمی برای پاداش این نقش وجود ندارد (حد نصاب امتیاز ماهانه کامل نشده).');
         }
         if (Money::cmp((string) ($preview['bonus_percent'] ?? '0'), '0') <= 0) {
             throw new \RuntimeException('درصد پاداش ماهانه این نقش صفر است؛ واریز ممکن نیست.');
         }
         if (Money::cmp((string) ($preview['profit_sum'] ?? '0'), '0') <= 0) {
-            throw new \RuntimeException('سود تراکنش‌های این ماه برای این نقش صفر است؛ مبلغی برای واریز وجود ندارد.');
+            throw new \RuntimeException('سود تراکنش روی درگاه‌های واجد شرایط در این ماه صفر است؛ مبلغی برای واریز وجود ندارد.');
         }
 
         $commission = $this->refresh($target, $roleSlug, $at);
@@ -420,6 +579,7 @@ class MonthlyBonusService
         $query = Commission::query()
             ->where('commissions.status', 'posted')
             ->where('commissions.idempotency_key', 'like', 'monthly-bonus:%:'.$monthKey)
+            ->where('commissions.idempotency_key', 'not like', 'monthly-bonus-residual:%')
             ->whereExists(function ($q) use ($nodes) {
                 $q->select(DB::raw(1))
                     ->from('organization_nodes as dn')
@@ -458,6 +618,18 @@ class MonthlyBonusService
         ];
     }
 
+    private function bonusDeltaPercent(object $version): string
+    {
+        $qualified = Money::normalize((string) ($version->qualified_percent ?? '0'));
+        $base = Money::normalize((string) ($version->percent ?? '0'));
+        $delta = Money::sub($qualified, $base);
+        if (Money::cmp($delta, '0') < 0) {
+            return '0.000';
+        }
+
+        return Money::normalize($delta, 3);
+    }
+
     private function formatPercentLabel(string $percent): string
     {
         $normalized = Money::normalize($percent, 3);
@@ -469,16 +641,30 @@ class MonthlyBonusService
         return rtrim(rtrim(number_format($rounded, 2, '.', ''), '0'), '.').'٪';
     }
 
-    private function monthlyAttributedProfit(int $userId, int $roleId, CarbonInterface $from, CarbonInterface $to): string
-    {
-        $rows = Commission::query()
+    private function monthlyAttributedProfit(
+        int $userId,
+        int $roleId,
+        CarbonInterface $from,
+        CarbonInterface $to,
+        ?array $onlyGatewaySaleIds = null,
+    ): string {
+        $query = Commission::query()
             ->where('user_id', $userId)
             ->where('role_id', $roleId)
             ->where('status', 'posted')
             ->where('created_at', '>=', $from)
             ->where('created_at', '<=', $to)
             ->where('idempotency_key', 'not like', 'monthly-bonus:%')
-            ->get(['base_amount', 'metadata']);
+            ->where('idempotency_key', 'not like', 'monthly-bonus-residual:%');
+
+        if ($onlyGatewaySaleIds !== null) {
+            if ($onlyGatewaySaleIds === []) {
+                return '0.000';
+            }
+            $query->whereIn('gateway_sale_id', $onlyGatewaySaleIds);
+        }
+
+        $rows = $query->get(['base_amount', 'metadata']);
 
         $sum = '0.000';
         foreach ($rows as $row) {
@@ -505,7 +691,6 @@ class MonthlyBonusService
                     $commission->id
                 );
             } catch (\Throwable) {
-                // leave as posted if clawback fails
                 return;
             }
         }
