@@ -43,16 +43,36 @@ class PointsController extends Controller
         $data = $request->validate([
             'user_id' => ['required', 'integer', 'exists:users,id'],
             'role_slug' => ['required', 'string', 'in:representative,sales_manager,development_manager'],
-            'delta_points' => ['required', 'integer', 'not_in:0', 'between:-1000000,1000000'],
+            'delta_points' => ['required', 'numeric', 'not_in:0', 'between:-1000000,1000000'],
             'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
             'note' => ['nullable', 'string', 'max:500'],
+        ], [
+            'delta_points.required' => 'مقدار تغییر امتیاز را وارد کنید.',
+            'delta_points.numeric' => 'مقدار تغییر امتیاز باید عدد باشد.',
+            'delta_points.not_in' => 'مقدار تغییر امتیاز نمی‌تواند صفر باشد.',
+            'delta_points.between' => 'مقدار تغییر امتیاز باید بین ۱٬۰۰۰٬۰۰۰− تا ۱٬۰۰۰٬۰۰۰ باشد.',
+            'user_id.required' => 'کاربر مشخص نشده است.',
+            'role_slug.required' => 'نقش کاربر مشخص نشده است.',
+            'role_slug.in' => 'نقش انتخاب‌شده برای تعدیل امتیاز معتبر نیست.',
+            'note.max' => 'یادداشت حداکثر ۵۰۰ کاراکتر باشد.',
+        ], [
+            'delta_points' => 'مقدار تغییر امتیاز',
+            'user_id' => 'کاربر',
+            'role_slug' => 'نقش',
+            'month' => 'ماه',
+            'note' => 'یادداشت',
         ]);
+
+        $delta = (int) round((float) $data['delta_points']);
+        if ($delta === 0) {
+            return response()->json(['message' => 'مقدار تغییر امتیاز پس از گرد کردن صفر شد؛ عدد بزرگ‌تری وارد کنید.'], 422);
+        }
 
         $row = $points->adjust(
             $request->user(),
             (int) $data['user_id'],
             $data['role_slug'],
-            (int) $data['delta_points'],
+            $delta,
             $data['month'] ?? null,
             $data['note'] ?? null,
         );

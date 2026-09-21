@@ -165,5 +165,9 @@ return [
         'name' => 'نام',
         'decision' => 'تصمیم',
         'note' => 'توضیح',
+        'delta_points' => 'مقدار تغییر امتیاز',
+        'user_id' => 'کاربر',
+        'role_slug' => 'نقش',
+        'month' => 'ماه',
     ],
 ];
