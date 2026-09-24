@@ -95,6 +95,7 @@ class OrganizationTreeService
         $userIds = $nodeQuery->select('organization_nodes.user_id')->distinct();
 
         return User::query()
+            ->with('roles:id,name,slug')
             ->whereIn('id', $userIds)
             ->when($search, function ($q) use ($search) {
                 $term = '%'.trim($search).'%';
@@ -103,7 +104,7 @@ class OrganizationTreeService
                         ->orWhere('mobile', 'like', $term);
                 });
             })
-            ->orderBy('id')
+            ->orderBy('name')
             ->paginate($perPage);
     }
 
@@ -418,16 +419,21 @@ class OrganizationTreeService
 
     /**
      * Org chart for UI: each user appears once with their highest role.
-     * Children of a hidden lower-role node attach under that user's visible node
-     * (not under the hidden node's parent / senior).
+     * Children of a hidden lower-role node attach under that user's visible node.
+     *
+     * @param  ?int  $rootId  Scope chart under this org node (visible role of that user).
+     * @param  int  $maxDepth  How many child levels to embed (0 = node only / children empty). Default 1.
+     * @param  ?int  $parentId  If set, return only direct visible children of this parent (lazy expand).
      */
-    public function tree(?int $rootId = null): array
+    public function tree(?int $rootId = null, int $maxDepth = 1, ?int $parentId = null): array
     {
+        $maxDepth = max(0, min($maxDepth, 8));
+
         $nodes = OrganizationNode::query()
             ->with(['user:id,name,mobile,is_active', 'role:id,name,slug,hierarchy_level'])
             ->where('is_active', true)
             ->orderBy('id')
-            ->get();
+            ->get(['id', 'user_id', 'parent_node_id', 'role_id', 'path', 'is_active']);
 
         $bestLevelByUser = [];
         $visibleIdByUser = [];
@@ -465,28 +471,59 @@ class OrganizationTreeService
             return $pid;
         };
 
-        $byParent = $nodes->groupBy(fn (OrganizationNode $n) => $effectiveParentId($n));
+        /** @var array<int, list<OrganizationNode>> $byParent */
+        $byParent = [];
+        foreach ($nodes as $node) {
+            if (! $isVisible($node)) {
+                continue;
+            }
+            $pid = $effectiveParentId($node);
+            $byParent[$pid][] = $node;
+        }
 
-        $build = function ($parentId) use (&$build, $byParent, $isVisible) {
+        $descendantMemo = [];
+        $descendantCount = function (int $nodeId) use (&$descendantCount, &$descendantMemo, $byParent): int {
+            if (isset($descendantMemo[$nodeId])) {
+                return $descendantMemo[$nodeId];
+            }
+            $total = 0;
+            foreach ($byParent[$nodeId] ?? [] as $child) {
+                $total += 1 + $descendantCount((int) $child->id);
+            }
+
+            return $descendantMemo[$nodeId] = $total;
+        };
+
+        $serialize = function (int $parentId, int $depthLeft) use (&$serialize, $byParent, $descendantCount): array {
             $out = [];
-            foreach ($byParent[$parentId] ?? collect() as $node) {
-                if (! $isVisible($node)) {
-                    continue;
-                }
+            foreach ($byParent[$parentId] ?? [] as $node) {
+                $id = (int) $node->id;
+                $rawKids = $byParent[$id] ?? [];
+                $hasChildren = $rawKids !== [];
+                $children = ($depthLeft > 0 && $hasChildren)
+                    ? $serialize($id, $depthLeft - 1)
+                    : [];
 
-                $children = $build($node->id);
-                $descendantCount = collect($children)->sum(fn ($child) => 1 + ($child['descendant_count'] ?? 0));
                 $out[] = [
-                    'id' => $node->id,
+                    'id' => $id,
                     'user' => $node->user,
                     'role' => $node->role,
-                    'descendant_count' => $descendantCount,
+                    'descendant_count' => $descendantCount($id),
+                    'has_children' => $hasChildren,
                     'children' => $children,
                 ];
             }
 
             return $out;
         };
+
+        if ($parentId !== null) {
+            if (! $nodesById->has($parentId)) {
+                return [];
+            }
+
+            return $serialize($parentId, max(0, $maxDepth));
+        }
 
         if ($rootId) {
             $root = $nodes->firstWhere('id', $rootId);
@@ -496,17 +533,23 @@ class OrganizationTreeService
             $rootUid = (int) $root->user_id;
             $visibleRootId = $visibleIdByUser[$rootUid] ?? (int) $root->id;
             $visibleRoot = $nodesById->get($visibleRootId) ?? $root;
-            $children = $build($visibleRoot->id);
+            $vid = (int) $visibleRoot->id;
+            $rawKids = $byParent[$vid] ?? [];
+            $hasChildren = $rawKids !== [];
+            $children = ($maxDepth > 0 && $hasChildren)
+                ? $serialize($vid, $maxDepth - 1)
+                : [];
 
             return [[
-                'id' => $visibleRoot->id,
+                'id' => $vid,
                 'user' => $visibleRoot->user,
                 'role' => $visibleRoot->role,
-                'descendant_count' => collect($children)->sum(fn ($child) => 1 + ($child['descendant_count'] ?? 0)),
+                'descendant_count' => $descendantCount($vid),
+                'has_children' => $hasChildren,
                 'children' => $children,
             ]];
         }
 
-        return $build(0);
+        return $serialize(0, $maxDepth);
     }
 }

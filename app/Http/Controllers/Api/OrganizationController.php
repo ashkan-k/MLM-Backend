@@ -19,25 +19,62 @@ class OrganizationController extends Controller
 {
     public function tree(Request $request, OrganizationTreeService $tree)
     {
+        $data = $request->validate([
+            'parent_id' => ['nullable', 'integer', 'min:1'],
+            'max_depth' => ['nullable', 'integer', 'min:0', 'max:8'],
+        ]);
+
+        $maxDepth = array_key_exists('max_depth', $data) ? (int) $data['max_depth'] : 1;
+        $parentId = isset($data['parent_id']) ? (int) $data['parent_id'] : null;
+
         $user = $request->user();
-        if ($user->isSuperuser() || $user->hasRole('senior_manager')) {
-            return response()->json($tree->tree());
+        $fullAccess = $user->isSuperuser() || $user->hasRole('senior_manager');
+
+        if ($parentId !== null) {
+            $parent = OrganizationNode::query()->whereKey($parentId)->first();
+            if (! $parent) {
+                return response()->json([]);
+            }
+            if (! $fullAccess) {
+                $own = $tree->activeNodesFor($user)->first();
+                if (! $own || ! str_starts_with((string) $parent->path, (string) $own->path)) {
+                    abort(403, 'دسترسی به این بخش از درخت مجاز نیست.');
+                }
+            }
+
+            return response()->json($tree->tree(null, $maxDepth, $parentId));
+        }
+
+        if ($fullAccess) {
+            return response()->json($tree->tree(null, $maxDepth));
         }
 
         $node = $tree->activeNodesFor($user)->first();
 
-        return response()->json($node ? $tree->tree($node->id) : []);
+        return response()->json($node ? $tree->tree($node->id, $maxDepth) : []);
     }
 
     public function team(Request $request, OrganizationTreeService $tree)
     {
+        $data = $request->validate([
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
+            'search' => ['nullable', 'string', 'max:80'],
+        ]);
+
+        $paginator = $tree->paginateDescendants(
+            $request->user(),
+            (int) ($data['per_page'] ?? 20),
+            $data['search'] ?? null,
+        );
+
         return response()->json(
-            $tree->descendants($request->user())->map(fn (User $u) => [
+            $paginator->through(fn (User $u) => [
                 'id' => $u->id,
                 'name' => $u->name,
                 'mobile' => $u->mobile,
                 'is_active' => (bool) $u->is_active,
-                'roles' => $u->roles()->pluck('name'),
+                'roles' => $u->roles->pluck('name')->values()->all(),
             ])
         );
     }

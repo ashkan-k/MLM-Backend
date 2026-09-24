@@ -54,7 +54,7 @@ class BenefitTransferController extends Controller
 
     private function assertSeniorManager(?User $user): void
     {
-        if (! $user?->hasRole('senior_manager')) {
+        if (! $user?->isSuperuser() && ! $user?->hasRole('senior_manager')) {
             abort(403, 'فقط مدیر ارشد می‌تواند انتقال مالکیت مزایا را انجام دهد.');
         }
     }
