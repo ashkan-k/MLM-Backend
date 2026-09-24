@@ -14,6 +14,22 @@ class OrganizationTreeService
 {
     public function __construct(private readonly WalletService $wallets) {}
 
+    /**
+     * Align with frontend OrgTree normalize(): Persian/Arabic digits and ی/ک variants.
+     */
+    private function normalizeSearch(string $value): string
+    {
+        $map = [
+            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+            '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+            'ي' => 'ی', 'ك' => 'ک',
+        ];
+
+        return mb_strtolower(strtr(trim($value), $map));
+    }
+
     public function activeNodesFor(User $user, ?string $roleSlug = null): Collection
     {
         $query = OrganizationNode::query()
@@ -424,10 +440,15 @@ class OrganizationTreeService
      * @param  ?int  $rootId  Scope chart under this org node (visible role of that user).
      * @param  int  $maxDepth  How many child levels to embed (0 = node only / children empty). Default 1.
      * @param  ?int  $parentId  If set, return only direct visible children of this parent (lazy expand).
+     * @param  ?string  $search  When set, return pruned paths from roots to matching name/mobile (server-side search).
      */
-    public function tree(?int $rootId = null, int $maxDepth = 1, ?int $parentId = null): array
+    public function tree(?int $rootId = null, int $maxDepth = 1, ?int $parentId = null, ?string $search = null): array
     {
-        $maxDepth = max(0, min($maxDepth, 8));
+        $maxDepth = max(0, min($maxDepth, 32));
+        $search = $search !== null ? trim($search) : null;
+        if ($search === '') {
+            $search = null;
+        }
 
         $nodes = OrganizationNode::query()
             ->with(['user:id,name,mobile,is_active', 'role:id,name,slug,hierarchy_level'])
@@ -473,12 +494,85 @@ class OrganizationTreeService
 
         /** @var array<int, list<OrganizationNode>> $byParent */
         $byParent = [];
+        /** @var array<int, int> $effParent */
+        $effParent = [];
         foreach ($nodes as $node) {
             if (! $isVisible($node)) {
                 continue;
             }
+            $id = (int) $node->id;
             $pid = $effectiveParentId($node);
             $byParent[$pid][] = $node;
+            $effParent[$id] = $pid;
+        }
+
+        if ($search !== null && $parentId === null) {
+            $needle = $this->normalizeSearch($search);
+            $matchIds = [];
+            foreach ($byParent as $list) {
+                foreach ($list as $node) {
+                    $hay = $this->normalizeSearch(
+                        ($node->user?->name ?? '').' '.
+                        ($node->user?->mobile ?? '').' '.
+                        ($node->role?->name ?? '').' '.
+                        $node->id
+                    );
+                    if ($hay !== '' && str_contains($hay, $needle)) {
+                        $matchIds[(int) $node->id] = true;
+                    }
+                }
+            }
+
+            // Scope matches under rootId when provided
+            if ($rootId && $matchIds !== []) {
+                $root = $nodes->firstWhere('id', $rootId);
+                if ($root) {
+                    $visibleRootId = $visibleIdByUser[(int) $root->user_id] ?? (int) $root->id;
+                    $rootPathPrefix = (string) ($nodesById->get($visibleRootId)?->path ?? '');
+                    foreach (array_keys($matchIds) as $mid) {
+                        $mNode = $nodesById->get($mid);
+                        if ($mNode && $rootPathPrefix !== '' && ! str_starts_with((string) $mNode->path, $rootPathPrefix)
+                            && (int) $mid !== (int) $visibleRootId) {
+                            // also allow if ancestor chain reaches visible root via effParent
+                            $ok = false;
+                            $cur = $mid;
+                            $g = 0;
+                            while ($cur && $g++ < 200) {
+                                if ($cur === (int) $visibleRootId) {
+                                    $ok = true;
+                                    break;
+                                }
+                                $cur = $effParent[$cur] ?? 0;
+                            }
+                            if (! $ok) {
+                                unset($matchIds[$mid]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            $keep = [];
+            foreach (array_keys($matchIds) as $mid) {
+                $cur = $mid;
+                $g = 0;
+                while ($cur && $g++ < 200) {
+                    $keep[$cur] = true;
+                    $cur = $effParent[$cur] ?? 0;
+                }
+            }
+
+            $pruned = [];
+            foreach ($byParent as $pid => $list) {
+                foreach ($list as $node) {
+                    if (isset($keep[(int) $node->id])) {
+                        $pruned[$pid][] = $node;
+                    }
+                }
+            }
+            $byParent = $pruned;
+            // Show full path to matches (ancestors + match); siblings off-path already pruned
+            $maxDepth = max($maxDepth, 24);
         }
 
         $descendantMemo = [];
@@ -534,11 +628,24 @@ class OrganizationTreeService
             $visibleRootId = $visibleIdByUser[$rootUid] ?? (int) $root->id;
             $visibleRoot = $nodesById->get($visibleRootId) ?? $root;
             $vid = (int) $visibleRoot->id;
+
             $rawKids = $byParent[$vid] ?? [];
             $hasChildren = $rawKids !== [];
             $children = ($maxDepth > 0 && $hasChildren)
                 ? $serialize($vid, $maxDepth - 1)
                 : [];
+
+            // If searching and root itself not kept and no children, return empty
+            if ($search !== null && ! $hasChildren) {
+                $selfHay = $this->normalizeSearch(
+                    ($visibleRoot->user?->name ?? '').' '.
+                    ($visibleRoot->user?->mobile ?? '').' '.
+                    ($visibleRoot->role?->name ?? '').' '.$vid
+                );
+                if (! str_contains($selfHay, $this->normalizeSearch($search))) {
+                    return [];
+                }
+            }
 
             return [[
                 'id' => $vid,

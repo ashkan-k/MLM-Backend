@@ -56,6 +56,55 @@ class QaOrgTreeLazyTest extends TestCase
         $this->assertIsArray($kids);
     }
 
+    public function test_tree_search_finds_deep_representative(): void
+    {
+        $token = $this->login('09121111111', 'senior_manager');
+
+        $res = $this->withToken($token)
+            ->getJson('/api/organization/tree?search=09125555555')
+            ->assertOk()
+            ->json();
+
+        $this->assertIsArray($res);
+        $this->assertNotEmpty($res, 'search should return a pruned path to the representative');
+
+        $found = false;
+        $walk = function ($nodes) use (&$walk, &$found) {
+            foreach ($nodes as $n) {
+                if (($n['user']['mobile'] ?? null) === '09125555555') {
+                    $found = true;
+                }
+                $walk($n['children'] ?? []);
+            }
+        };
+        $walk($res);
+        $this->assertTrue($found, 'representative mobile must appear in search tree');
+    }
+
+    public function test_tree_search_normalizes_persian_digits_and_yeh(): void
+    {
+        $token = $this->login('09121111111', 'senior_manager');
+
+        // Arabic yeh / Persian digits should still hit Latin-digit mobile in DB
+        $res = $this->withToken($token)
+            ->getJson('/api/organization/tree?search='.urlencode('۰۹۱۲۵۵۵۵۵۵۵'))
+            ->assertOk()
+            ->json();
+
+        $this->assertNotEmpty($res);
+        $found = false;
+        $walk = function ($nodes) use (&$walk, &$found) {
+            foreach ($nodes as $n) {
+                if (($n['user']['mobile'] ?? null) === '09125555555') {
+                    $found = true;
+                }
+                $walk($n['children'] ?? []);
+            }
+        };
+        $walk($res);
+        $this->assertTrue($found);
+    }
+
     public function test_rep_cannot_lazy_load_foreign_parent(): void
     {
         $token = $this->login('09125555555', 'representative');

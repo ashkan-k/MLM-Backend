@@ -21,11 +21,19 @@ class OrganizationController extends Controller
     {
         $data = $request->validate([
             'parent_id' => ['nullable', 'integer', 'min:1'],
-            'max_depth' => ['nullable', 'integer', 'min:0', 'max:8'],
+            'max_depth' => ['nullable', 'integer', 'min:0', 'max:32'],
+            'search' => ['nullable', 'string', 'max:80'],
         ]);
 
         $maxDepth = array_key_exists('max_depth', $data) ? (int) $data['max_depth'] : 1;
         $parentId = isset($data['parent_id']) ? (int) $data['parent_id'] : null;
+        $search = isset($data['search']) ? trim((string) $data['search']) : null;
+        if ($search === '') {
+            $search = null;
+        }
+        if ($search !== null) {
+            $maxDepth = max($maxDepth, 16);
+        }
 
         $user = $request->user();
         $fullAccess = $user->isSuperuser() || $user->hasRole('senior_manager');
@@ -46,12 +54,12 @@ class OrganizationController extends Controller
         }
 
         if ($fullAccess) {
-            return response()->json($tree->tree(null, $maxDepth));
+            return response()->json($tree->tree(null, $maxDepth, null, $search));
         }
 
         $node = $tree->activeNodesFor($user)->first();
 
-        return response()->json($node ? $tree->tree($node->id, $maxDepth) : []);
+        return response()->json($node ? $tree->tree($node->id, $maxDepth, null, $search) : []);
     }
 
     public function team(Request $request, OrganizationTreeService $tree)
