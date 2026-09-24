@@ -43,8 +43,10 @@ class BenefitTransferController extends Controller
         return response()->json($transfer, 201);
     }
 
-    public function shares(User $user)
+    public function shares(Request $request, User $user)
     {
+        $this->assertSeniorManager($request->user());
+
         return response()->json(
             GatewayRepresentative::query()->with('sale.gateway')->where('user_id', $user->id)->get()
         );
