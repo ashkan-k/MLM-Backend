@@ -114,6 +114,7 @@ class EmployerEmptyOrgScenarioTest extends TestCase
                 ->exists()
         );
 
+        $roleBefore = $this->walletBalance($this->senior, 'senior_manager');
         $residual = app(MonthlyBonusService::class)->settleUnpaidToSenior(now());
         $this->assertNotNull($residual);
         $this->assertSame('posted', $residual->status);
@@ -123,11 +124,8 @@ class EmployerEmptyOrgScenarioTest extends TestCase
         $this->assertSame($this->senior->id, $residual->user_id);
         $this->assertSame('monthly_bonus_residual', $residual->metadata['type'] ?? null);
 
-        $seniorBeforeBase = 4000.0; // ممکن است از تست موازی نباشد؛ فقط residual را از کیف چک می‌کنیم
-        $this->assertGreaterThanOrEqual(
-            8500.0 - 0.01,
-            $this->walletBalance($this->senior, 'senior_manager')
-        );
+        $this->assertEqualsWithDelta($roleBefore, $this->walletBalance($this->senior, 'senior_manager'), 0.01);
+        $this->assertEqualsWithDelta(8500.0, $this->residualWalletBalance($this->senior), 0.01);
     }
 
     public function test_rep_reaches_bonus_threshold_locks_gateway_and_keeps_earning_forever(): void
@@ -163,11 +161,14 @@ class EmployerEmptyOrgScenarioTest extends TestCase
         $bonus->refresh();
         $this->assertEqualsWithDelta(10000.0, (float) $bonus->commission_amount, 0.01);
 
-        // SM/DM ارشد هنوز حد نصاب ۵۰۰۰ ندارند → باقی‌مانده دلتای آن‌ها به ارشد
+        // SM/DM ارشد هنوز حد نصاب ۵۰۰۰ ندارند → باقی‌مانده دلتای آن‌ها به کیف پاداش اضافه
+        $roleBefore = $this->walletBalance($this->senior, 'senior_manager');
         $residual = app(MonthlyBonusService::class)->settleUnpaidToSenior(now());
         $this->assertNotNull($residual);
         // دو تراکنش × (۲٪+۱٫۵٪) × ۱۰۰٬۰۰۰ = ۷۰۰۰
         $this->assertEqualsWithDelta(7000.0, (float) $residual->commission_amount, 0.01);
+        $this->assertEqualsWithDelta($roleBefore, $this->walletBalance($this->senior, 'senior_manager'), 0.01);
+        $this->assertEqualsWithDelta(7000.0, $this->residualWalletBalance($this->senior), 0.01);
     }
 
     public function test_promotion_to_sales_manager_auto_request_and_rehomes_downline(): void
@@ -476,7 +477,19 @@ class EmployerEmptyOrgScenarioTest extends TestCase
     {
         $wallet = Wallet::query()
             ->where('user_id', $user->id)
+            ->where('kind', Wallet::KIND_ROLE)
             ->whereHas('role', fn ($q) => $q->where('slug', $roleSlug))
+            ->first();
+
+        return (float) ($wallet?->balance ?? 0);
+    }
+
+    private function residualWalletBalance(User $user): float
+    {
+        $wallet = Wallet::query()
+            ->where('user_id', $user->id)
+            ->where('kind', Wallet::KIND_BONUS_RESIDUAL)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'senior_manager'))
             ->first();
 
         return (float) ($wallet?->balance ?? 0);

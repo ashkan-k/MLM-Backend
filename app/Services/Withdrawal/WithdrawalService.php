@@ -201,6 +201,7 @@ class WithdrawalService
             $wallet = Wallet::query()
                 ->where('user_id', $user->id)
                 ->where('role_id', $activeRole->id)
+                ->where('kind', Wallet::KIND_ROLE)
                 ->first();
             if (! $wallet) {
                 throw new RuntimeException('کیف پول نقش فعال یافت نشد.');
@@ -233,6 +234,7 @@ class WithdrawalService
     {
         $wallets = Wallet::query()
             ->where('user_id', $user->id)
+            ->where('kind', Wallet::KIND_ROLE)
             ->with('role')
             ->lockForUpdate()
             ->get()

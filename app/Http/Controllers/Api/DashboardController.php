@@ -28,7 +28,19 @@ class DashboardController extends Controller
         $promotions->autoSubmitIfEligible($user);
 
         $wallet = $role
-            ? Wallet::query()->where('user_id', $user->id)->where('role_id', $role->id)->first()
+            ? Wallet::query()
+                ->where('user_id', $user->id)
+                ->where('role_id', $role->id)
+                ->where('kind', Wallet::KIND_ROLE)
+                ->first()
+            : null;
+
+        $residualWallet = ($role && $role->slug === 'senior_manager')
+            ? Wallet::query()
+                ->where('user_id', $user->id)
+                ->where('role_id', $role->id)
+                ->where('kind', Wallet::KIND_BONUS_RESIDUAL)
+                ->first()
             : null;
 
         $progress = $role ? $qualification->progress($role->slug, $user, $role->id, now()) : null;
@@ -37,6 +49,7 @@ class DashboardController extends Controller
         return response()->json([
             'role' => $role,
             'wallet' => $wallet,
+            'residual_wallet' => $residualWallet,
             'qualification' => $progress,
             'monthly_bonus' => $bonus,
             'team_count' => $tree->descendantCount($user),

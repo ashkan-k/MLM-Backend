@@ -8,9 +8,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Wallet extends Model
 {
+    /** پورسانت و پاداش سهم خود همان نقش. */
+    public const KIND_ROLE = 'role';
+
+    /** مابقی پاداش ماهانه که به مدیر ارشد می‌رسد و با سهم شخصی قاطی نمی‌شود. */
+    public const KIND_BONUS_RESIDUAL = 'bonus_residual';
+
     protected $fillable = [
         'user_id',
         'role_id',
+        'kind',
         'currency',
         'balance',
         'held_balance',

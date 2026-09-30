@@ -33,7 +33,7 @@ class PayMonthlyBonusesCommand extends Command
 
         $count = $bonuses->refreshMonth($at);
         $this->info("پاداش ماهانه برای {$count} ترکیب کاربر/نقش در ماه {$month} به‌روز شد.");
-        $this->comment('مابقی پاداش‌های پرداخت‌نشده (در صورت وجود) به کیف مدیر ارشد واریز شد.');
+        $this->comment('مابقی پاداش‌های پرداخت‌نشده (در صورت وجود) به کیف جداگانهٔ پاداش اضافه مدیر ارشد واریز شد.');
 
         return self::SUCCESS;
     }

@@ -12,13 +12,14 @@ use RuntimeException;
 
 class WalletService
 {
-    public function walletFor(User $user, Role $role, string $currency = 'IRT'): Wallet
+    public function walletFor(User $user, Role $role, string $currency = 'IRT', string $kind = Wallet::KIND_ROLE): Wallet
     {
         return Wallet::query()->firstOrCreate(
             [
                 'user_id' => $user->id,
                 'role_id' => $role->id,
                 'currency' => $currency,
+                'kind' => $kind,
             ],
             [
                 'balance' => '0.000',
@@ -26,6 +27,12 @@ class WalletService
                 'is_active' => true,
             ]
         );
+    }
+
+    /** کیف جدا برای پاداش‌های اضافه (مابقی ماهانه) مدیر ارشد. */
+    public function residualBonusWallet(User $user, Role $role, string $currency = 'IRT'): Wallet
+    {
+        return $this->walletFor($user, $role, $currency, Wallet::KIND_BONUS_RESIDUAL);
     }
 
     public function credit(Wallet $wallet, string $amount, string $type, string $idempotencyKey, ?string $referenceType = null, ?int $referenceId = null, array $metadata = []): WalletTransaction

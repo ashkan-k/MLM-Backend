@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
  *   (rep: own; SM/DM: own + downline). Month counter resets each month.
  * - Hitting the month threshold permanently marks that month's counted gateways as bonus-eligible.
  * - Bonus = (qualified% − base%) × attributed profits on permanently eligible gateways (this month).
- * - Unpaid remainder (profits on non-eligible gateways) → senior_manager wallet.
+ * - Unpaid remainder (profits on non-eligible gateways) → senior residual wallet (kind bonus_residual), not the personal role wallet.
  */
 class MonthlyBonusService
 {
@@ -205,7 +205,7 @@ class MonthlyBonusService
     }
 
     /**
-     * مابقی پاداش ماهانه پرداخت‌نشده (نرسیده به حد نصاب یا سود قبل از حد نصاب) → کیف مدیر ارشد.
+     * مابقی پاداش ماهانه پرداخت‌نشده → کیف جداگانهٔ پاداش اضافه مدیر ارشد (نه کیف پورسانت نقش).
      */
     public function settleUnpaidToSenior(?CarbonInterface $at = null): ?Commission
     {
@@ -300,7 +300,7 @@ class MonthlyBonusService
                 'month' => $monthKey,
                 'details' => $details,
             ];
-            $wallet = $this->wallets->walletFor($senior, $seniorRole);
+            $wallet = $this->wallets->residualBonusWallet($senior, $seniorRole);
 
             if (! $existing) {
                 $commission = Commission::query()->create([
@@ -393,7 +393,7 @@ class MonthlyBonusService
                 $guide[] = 'حد نصاب امتیاز این ماه تکمیل شده؛ با اولین به‌روزرسانی، درگاه‌های ماه جاری دائمی می‌شوند.';
             } else {
                 $guide[] = 'پس از تکمیل حد نصاب امتیاز، درگاه‌های ثبت‌شدهٔ همین ماه برای همیشه واجد شرایط می‌شوند و '.$percentLabel
-                    .' از سود تراکنش‌های بعدی آن‌ها پاداش می‌شود. در غیر این صورت پاداش بالقوه به مدیر ارشد می‌رود.';
+                    .' از سود تراکنش‌های بعدی آن‌ها پاداش می‌شود. در غیر این صورت پاداش بالقوه به کیف جداگانهٔ پاداش اضافه مدیر ارشد می‌رود.';
             }
         }
 
@@ -678,7 +678,11 @@ class MonthlyBonusService
 
     private function reverse(Commission $commission): void
     {
-        $wallet = $this->wallets->walletFor($commission->user, $commission->role);
+        $isResidual = ($commission->metadata['type'] ?? null) === 'monthly_bonus_residual'
+            || str_starts_with((string) $commission->idempotency_key, 'monthly-bonus-residual:');
+        $wallet = $isResidual
+            ? $this->wallets->residualBonusWallet($commission->user, $commission->role)
+            : $this->wallets->walletFor($commission->user, $commission->role);
         $amount = Money::normalize((string) $commission->commission_amount);
         if (Money::cmp($amount, '0') > 0) {
             try {

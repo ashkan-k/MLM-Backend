@@ -116,7 +116,7 @@ class BenefitTransferService
                 continue;
             }
 
-            $dest = $this->wallets->walletFor($to, $wallet->role);
+            $dest = $this->wallets->walletFor($to, $wallet->role, $wallet->currency ?: 'IRT', $wallet->kind ?: \App\Models\Wallet::KIND_ROLE);
             $key = 'bt-wallet-'.$transfer->id.'-'.$wallet->id;
             $this->wallets->debit(
                 $wallet,
