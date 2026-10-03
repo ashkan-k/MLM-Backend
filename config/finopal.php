@@ -19,4 +19,6 @@ return [
     'ws_server' => env('FINOPAL_WS_URL', 'http://127.0.0.1:6001'),
     'ws_secret' => env('FINOPAL_WS_SECRET', 'finopal-ws-secret'),
     'webhook_secret' => env('FINOPAL_WEBHOOK_SECRET', ''),
+    /** Default password for users created via org-structure webhook. */
+    'sync_default_password' => env('FINOPAL_SYNC_DEFAULT_PASSWORD', 'Password123!'),
 ];

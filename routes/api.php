@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\PointsController;
 use App\Http\Controllers\Api\PromotionController;
 use App\Http\Controllers\Api\ReferralController;
+use App\Http\Controllers\Api\SmsDebugController;
 use App\Http\Controllers\Api\SuperuserController;
 use App\Http\Controllers\Api\TrainingController;
 use App\Http\Controllers\Api\WalletController;
@@ -23,6 +24,7 @@ Route::post('/auth/register', [AuthController::class, 'register']);
 Route::get('/shared-links/token/{token}', [ReferralController::class, 'showByToken']);
 Route::post('/webhooks/frasoft', [SuperuserController::class, 'frasoftWebhook']);
 Route::post('/webhooks/finopal/transaction', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'transaction']);
+Route::post('/webhooks/finopal/org-structure', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'orgStructure']);
 
 Route::middleware(['auth.api'])->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
@@ -134,5 +136,9 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/audits/{audit}', [SuperuserController::class, 'showAudit']);
         Route::get('/frasoft/logs', [SuperuserController::class, 'frasoftLogs']);
         Route::post('/frasoft/sync', [SuperuserController::class, 'frasoftSync']);
+
+        Route::get('/sms', [SmsDebugController::class, 'index']);
+        Route::post('/sms/test', [SmsDebugController::class, 'testSend']);
+        Route::delete('/sms/logs', [SmsDebugController::class, 'clearLogs']);
     });
 });
