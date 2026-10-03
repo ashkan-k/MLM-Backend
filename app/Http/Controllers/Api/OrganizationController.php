@@ -81,6 +81,8 @@ class OrganizationController extends Controller
                 'id' => $u->id,
                 'name' => $u->name,
                 'mobile' => $u->mobile,
+                'national_id' => $u->national_id,
+                'birth_date' => $u->birth_date?->format('Y-m-d') ?? $u->birth_date,
                 'is_active' => (bool) $u->is_active,
                 'roles' => $u->roles->pluck('name')->values()->all(),
             ])
@@ -101,6 +103,8 @@ class OrganizationController extends Controller
                     'id' => $u->id,
                     'name' => $u->name,
                     'mobile' => $u->mobile,
+                    'national_id' => $u->national_id,
+                    'birth_date' => $u->birth_date?->format('Y-m-d') ?? $u->birth_date,
                     'roles' => $u->roles->map(fn ($r) => ['id' => $r->id, 'name' => $r->name, 'slug' => $r->slug]),
                 ])
         );
@@ -121,6 +125,8 @@ class OrganizationController extends Controller
                 'id' => $u->id,
                 'name' => $u->name,
                 'mobile' => $u->mobile,
+                'national_id' => $u->national_id,
+                'birth_date' => $u->birth_date?->format('Y-m-d') ?? $u->birth_date,
                 'roles' => $u->roles->map(fn ($r) => ['id' => $r->id, 'name' => $r->name, 'slug' => $r->slug]),
             ])
         );

@@ -4,6 +4,7 @@ namespace App\Services\Commission;
 
 use App\Models\FinopalTransaction;
 use App\Models\GatewaySale;
+use App\Models\ProductSale;
 use App\Models\RepresentativeReferral;
 use App\Models\Role;
 use App\Models\User;
@@ -22,6 +23,16 @@ class CommissionEngine
 
     public function process(GatewaySale $sale, ?FinopalTransaction $transaction = null): array
     {
+        return $this->processSale($sale, $transaction);
+    }
+
+    public function processProduct(ProductSale $sale, ?FinopalTransaction $transaction = null): array
+    {
+        return $this->processSale($sale, $transaction);
+    }
+
+    public function processSale(GatewaySale|ProductSale $sale, ?FinopalTransaction $transaction = null): array
+    {
         if ($sale->status !== 'successful') {
             return [];
         }
@@ -37,6 +48,7 @@ class CommissionEngine
             $base = (string) $transaction->profit;
             $touched = [];
             $referrerRate = $this->basePercent('representative_referrer', $at);
+            $saleKind = $sale instanceof ProductSale ? 'product' : 'gateway';
 
             // نمایندگان: پورسانت کامل سهم خود (بدون کسر معرف)
             foreach ($sale->representatives as $row) {
@@ -56,13 +68,14 @@ class CommissionEngine
                         'share_percent' => $share,
                         'sales_points' => $row->sales_points,
                         'finopal_transaction_id' => $transaction->id,
+                        'product_type' => $transaction->product_type,
+                        'sale_kind' => $saleKind,
                     ]
                 );
                 $touched[] = [$row->user, 'representative'];
             }
 
-            // معرف: ۲٪ از کل سود تراکنش (نه از برش مالکیت نماینده معرفی‌شده)
-            // هر معرف یکتا حداکثر یک‌بار از همین تراکنش سهم می‌گیرد.
+            // معرف: ۲٪ از کل سود تراکنش
             $referrerPayouts = $this->referrerPayoutsFromTotal($sale, $base, $referrerRate);
             foreach ($referrerPayouts as $userId => $payout) {
                 if (Money::cmp($payout['amount'], '0') <= 0) {
@@ -84,6 +97,8 @@ class CommissionEngine
                         'transaction_profit' => Money::normalize($base, 3),
                         'finopal_transaction_id' => $transaction->id,
                         'calculated_from_total_profit' => true,
+                        'product_type' => $transaction->product_type,
+                        'sale_kind' => $saleKind,
                     ],
                     $payout['amount']
                 );
@@ -98,7 +113,12 @@ class CommissionEngine
                     $row->role->slug,
                     $this->basePercent($row->role->slug, $at),
                     $base,
-                    ['manager_role' => $row->role->slug, 'finopal_transaction_id' => $transaction->id]
+                    [
+                        'manager_role' => $row->role->slug,
+                        'finopal_transaction_id' => $transaction->id,
+                        'product_type' => $transaction->product_type,
+                        'sale_kind' => $saleKind,
+                    ]
                 );
                 $touched[] = [$row->user, $row->role->slug];
             }
@@ -112,11 +132,9 @@ class CommissionEngine
     }
 
     /**
-     * ۲٪ از کل سود تراکنش برای هر معرف یکتا (معرف‌های مشترک لینک، همان ۲٪ را بین خود تقسیم می‌کنند).
-     *
      * @return array<int, array{amount: string, member_weight: string}>
      */
-    private function referrerPayoutsFromTotal(GatewaySale $sale, string $base, string $referrerRate): array
+    private function referrerPayoutsFromTotal(GatewaySale|ProductSale $sale, string $base, string $referrerRate): array
     {
         if (Money::cmp($referrerRate, '0') <= 0) {
             return [];
@@ -172,7 +190,7 @@ class CommissionEngine
     }
 
     private function creditRole(
-        GatewaySale $sale,
+        GatewaySale|ProductSale $sale,
         FinopalTransaction $transaction,
         User $user,
         string $roleSlug,
@@ -188,9 +206,11 @@ class CommissionEngine
             ? Money::normalize($amountOverride, 3)
             : $this->calculator->amount($base, $percent);
 
+        $kind = $sale instanceof ProductSale ? 'product' : 'gateway';
         $key = sprintf(
-            'tx:%s:sale:%s:user:%s:role:%s',
+            'tx:%s:%s:%s:user:%s:role:%s',
             $transaction->id,
+            $kind,
             $sale->id,
             $user->id,
             $role->id

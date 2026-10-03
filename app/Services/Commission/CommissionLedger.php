@@ -4,6 +4,7 @@ namespace App\Services\Commission;
 
 use App\Models\Commission;
 use App\Models\GatewaySale;
+use App\Models\ProductSale;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Wallet\WalletService;
@@ -16,7 +17,7 @@ class CommissionLedger
     public function post(
         User $user,
         Role $role,
-        ?GatewaySale $sale,
+        GatewaySale|ProductSale|null $sale,
         ?int $ruleVersionId,
         string $baseAmount,
         string $percent,
@@ -33,7 +34,8 @@ class CommissionLedger
         $commission = Commission::query()->create([
             'user_id' => $user->id,
             'role_id' => $role->id,
-            'gateway_sale_id' => $sale?->id,
+            'gateway_sale_id' => $sale instanceof GatewaySale ? $sale->id : null,
+            'product_sale_id' => $sale instanceof ProductSale ? $sale->id : null,
             'finopal_transaction_id' => $transactionId,
             'rule_version_id' => $ruleVersionId,
             'base_amount' => Money::normalize($baseAmount, 3),

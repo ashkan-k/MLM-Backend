@@ -9,8 +9,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class FinopalTransaction extends Model
 {
     protected $fillable = [
+        'product_type',
+        'product_code',
         'gateway_id',
         'gateway_sale_id',
+        'product_sale_id',
         'merchant_code',
         'event',
         'authority',
@@ -46,6 +49,11 @@ class FinopalTransaction extends Model
     public function sale(): BelongsTo
     {
         return $this->belongsTo(GatewaySale::class, 'gateway_sale_id');
+    }
+
+    public function productSale(): BelongsTo
+    {
+        return $this->belongsTo(ProductSale::class, 'product_sale_id');
     }
 
     public function commissions(): HasMany

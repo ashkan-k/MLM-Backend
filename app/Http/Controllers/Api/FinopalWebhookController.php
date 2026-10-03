@@ -18,14 +18,29 @@ class FinopalWebhookController extends Controller
 
         $data = $request->validate([
             'event' => ['nullable', 'string', 'max:80'],
-            'merchant_id' => ['required_without:merchant_code', 'string', 'max:64'],
+            'product_type' => ['nullable', 'string', 'max:64'],
+            'product_code' => ['nullable', 'string', 'max:120'],
+            'title' => ['nullable', 'string', 'max:190'],
+            'merchant_id' => ['nullable', 'string', 'max:64'],
             'merchant_code' => ['nullable', 'string', 'max:64'],
+            'owner_national_id' => ['nullable', 'string', 'max:20'],
+            'owner_mobile' => ['nullable', 'string', 'max:20'],
+            'owner_user_id' => ['nullable', 'integer', 'min:1'],
+            'representative_national_id' => ['nullable', 'string', 'max:20'],
+            'representative_user_id' => ['nullable', 'integer', 'min:1'],
+            'owners' => ['nullable', 'array', 'min:1'],
+            'owners.*.national_id' => ['nullable', 'string', 'max:20'],
+            'owners.*.mobile' => ['nullable', 'string', 'max:20'],
+            'owners.*.user_id' => ['nullable', 'integer', 'min:1'],
+            'owners.*.share_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'external_sale_id' => ['nullable', 'string', 'max:190'],
             'authority' => ['nullable', 'string', 'max:120'],
             'ref_id' => ['nullable', 'string', 'max:120'],
             'order_id' => ['nullable', 'string', 'max:120'],
             'amount' => ['required', 'numeric', 'min:0'],
             'profit' => ['required', 'numeric', 'min:0'],
             'gateway_profit' => ['nullable', 'numeric', 'min:0'],
+            'commission_base' => ['nullable', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'max:8'],
             'status' => ['nullable', 'string', 'max:40'],
             'code' => ['nullable', 'integer'],
@@ -34,11 +49,16 @@ class FinopalWebhookController extends Controller
             'payer' => ['nullable', 'array'],
             'metadata' => ['nullable', 'array'],
         ], [], [
+            'product_type' => 'نوع محصول',
+            'product_code' => 'کد محصول',
             'merchant_id' => 'کد مرچنت (merchant_id)',
             'merchant_code' => 'کد مرچنت (merchant_code)',
+            'owner_national_id' => 'کد ملی مالک',
+            'owners' => 'مالکان محصول',
             'amount' => 'مبلغ تراکنش',
-            'profit' => 'سود درگاه',
+            'profit' => 'پایه پورسانت (سود)',
             'gateway_profit' => 'سود درگاه',
+            'commission_base' => 'پایه پورسانت',
             'currency' => 'واحد پول',
             'authority' => 'شناسه authority',
             'ref_id' => 'شماره پیگیری',
@@ -51,6 +71,21 @@ class FinopalWebhookController extends Controller
             'payer' => 'اطلاعات پرداخت‌کننده',
             'metadata' => 'متادیتا',
         ]);
+
+        $productType = strtolower((string) ($data['product_type'] ?? 'gateway_profit'));
+        $isGateway = in_array($productType, ['gateway_profit', 'gateway', 'gateway_payment', 'payment_gateway', ''], true);
+        if ($isGateway && empty($data['merchant_id']) && empty($data['merchant_code'])) {
+            return response()->json(['message' => 'برای محصول درگاه، merchant_id الزامی است.'], 422);
+        }
+        if (! $isGateway
+            && empty($data['owner_national_id'])
+            && empty($data['representative_national_id'])
+            && empty($data['owner_user_id'])
+            && empty($data['representative_user_id'])
+            && empty($data['owners'])
+        ) {
+            return response()->json(['message' => 'برای محصول غیر درگاه، owner_national_id یا owners الزامی است.'], 422);
+        }
 
         try {
             $tx = $transactions->ingest($data + $request->all());

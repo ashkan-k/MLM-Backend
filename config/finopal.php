@@ -21,4 +21,35 @@ return [
     'webhook_secret' => env('FINOPAL_WEBHOOK_SECRET', ''),
     /** Default password for users created via org-structure webhook. */
     'sync_default_password' => env('FINOPAL_SYNC_DEFAULT_PASSWORD', 'Password123!'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Product catalog (commission source types)
+    |--------------------------------------------------------------------------
+    | Webhook field: product_type
+    | - gateway_profit: resolve by merchant_id → approved gateway sale
+    | - other types: resolve owners by national_id / user_id and walk org tree
+    */
+    'products' => [
+        'gateway_profit' => [
+            'label' => 'سود درگاه پرداخت',
+            'requires_merchant' => true,
+            'requires_owner' => false,
+            'sale_points' => 0,
+            'default_code' => 'GATEWAY',
+        ],
+        'ticketing' => [
+            'label' => 'سیستم تیکتینگ فینوپال',
+            'requires_merchant' => false,
+            'requires_owner' => true,
+            'sale_points' => 0,
+            'default_code' => 'TICKETING',
+        ],
+        '_default' => [
+            'label' => 'محصول سفارشی',
+            'requires_merchant' => false,
+            'requires_owner' => true,
+            'sale_points' => 0,
+        ],
+    ],
 ];

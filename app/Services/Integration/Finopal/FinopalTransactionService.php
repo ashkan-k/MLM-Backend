@@ -4,59 +4,102 @@ namespace App\Services\Integration\Finopal;
 
 use App\Models\FinopalTransaction;
 use App\Models\Gateway;
+use App\Models\GatewaySale;
 use App\Models\Notification;
+use App\Models\ProductSale;
 use App\Services\Commission\CommissionEngine;
+use App\Services\Product\ProductSaleService;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 class FinopalTransactionService
 {
-    public function __construct(private readonly CommissionEngine $engine) {}
+    public function __construct(
+        private readonly CommissionEngine $engine,
+        private readonly ProductSaleService $productSales,
+    ) {}
 
     public function ingest(array $payload): FinopalTransaction
     {
-        $merchant = trim((string) ($payload['merchant_id'] ?? $payload['merchant_code'] ?? ''));
         unset($payload['webhook_secret']);
-        if ($merchant === '') {
-            throw new RuntimeException('merchant_id الزامی است.');
+
+        $productType = $this->normalizeProductType($payload['product_type'] ?? $payload['productType'] ?? null);
+        $productCode = isset($payload['product_code'])
+            ? trim((string) $payload['product_code'])
+            : (isset($payload['productCode']) ? trim((string) $payload['productCode']) : null);
+        if ($productCode === '') {
+            $productCode = null;
         }
 
-        $key = $this->idempotencyKey($payload, $merchant);
+        $definition = $this->productDefinition($productType);
+        $requiresMerchant = (bool) ($definition['requires_merchant'] ?? ($productType === 'gateway_profit'));
+
+        $merchant = trim((string) ($payload['merchant_id'] ?? $payload['merchant_code'] ?? ''));
+        if ($requiresMerchant && $merchant === '') {
+            throw new RuntimeException('برای محصول درگاه، merchant_id الزامی است.');
+        }
+
+        $key = $this->idempotencyKey($payload, $merchant !== '' ? $merchant : $productType);
         if ($existing = FinopalTransaction::query()->where('idempotency_key', $key)->first()) {
             $existing->setAttribute('was_duplicate', true);
 
-            return $existing->load(['gateway', 'sale', 'commissions.role']);
-        }
-
-        $gateway = Gateway::query()->where('merchant_code', $merchant)->first();
-        if (! $gateway) {
-            throw new RuntimeException('درگاهی با این کد مرچنت پیدا نشد.');
-        }
-        if (! $gateway->is_active) {
-            throw new RuntimeException('این درگاه غیرفعال است.');
-        }
-
-        $sale = $gateway->sales()
-            ->where('status', 'successful')
-            ->latest('sold_at')
-            ->first();
-        if (! $sale) {
-            throw new RuntimeException('این مرچنت هنوز به یک درگاه تاییدشده وصل نیست.');
+            return $existing->load(['gateway', 'sale', 'productSale', 'commissions.role']);
         }
 
         $event = (string) ($payload['event'] ?? 'transaction.verified');
         $status = strtolower((string) ($payload['status'] ?? 'verified'));
         $code = isset($payload['code']) ? (int) $payload['code'] : null;
         $verified = $this->isVerified($event, $status, $code);
-
         [$amount, $profit, $currency] = $this->amounts($payload);
 
-        return DB::transaction(function () use ($payload, $merchant, $key, $gateway, $sale, $event, $status, $code, $verified, $amount, $profit, $currency) {
+        return DB::transaction(function () use (
+            $payload,
+            $merchant,
+            $key,
+            $event,
+            $status,
+            $code,
+            $verified,
+            $amount,
+            $profit,
+            $currency,
+            $productType,
+            $productCode,
+            $requiresMerchant,
+            $definition,
+        ) {
+            $gateway = null;
+            $gatewaySale = null;
+            $productSale = null;
+
+            if ($requiresMerchant) {
+                $gateway = Gateway::query()->where('merchant_code', $merchant)->first();
+                if (! $gateway) {
+                    throw new RuntimeException('درگاهی با این کد مرچنت پیدا نشد.');
+                }
+                if (! $gateway->is_active) {
+                    throw new RuntimeException('این درگاه غیرفعال است.');
+                }
+
+                $gatewaySale = $gateway->sales()
+                    ->where('status', 'successful')
+                    ->latest('sold_at')
+                    ->first();
+                if (! $gatewaySale) {
+                    throw new RuntimeException('این مرچنت هنوز به یک درگاه تاییدشده وصل نیست.');
+                }
+            } else {
+                $productSale = $this->productSales->resolveFromWebhook($payload, $productType, $productCode, $amount);
+            }
+
             $tx = FinopalTransaction::query()->create([
-                'gateway_id' => $gateway->id,
-                'gateway_sale_id' => $sale->id,
-                'merchant_code' => $merchant,
+                'product_type' => $productType,
+                'product_code' => $productCode ?? ($definition['default_code'] ?? null),
+                'gateway_id' => $gateway?->id,
+                'gateway_sale_id' => $gatewaySale?->id,
+                'product_sale_id' => $productSale?->id,
+                'merchant_code' => $merchant !== '' ? $merchant : null,
                 'event' => $event,
                 'authority' => $payload['authority'] ?? null,
                 'ref_id' => $payload['ref_id'] ?? null,
@@ -72,17 +115,56 @@ class FinopalTransactionService
             ]);
 
             if ($verified && Money::cmp($profit, '0') > 0) {
-                $this->engine->process($sale->fresh(['representatives.user', 'referrers.user', 'managers.user', 'managers.role']), $tx);
+                if ($gatewaySale) {
+                    $this->engine->process(
+                        $gatewaySale->fresh(['representatives.user', 'referrers.user', 'managers.user', 'managers.role']),
+                        $tx
+                    );
+                    $this->notifyTree($gatewaySale, $gateway, $tx, $productType);
+                } elseif ($productSale) {
+                    $this->engine->processProduct(
+                        $productSale->fresh(['representatives.user', 'referrers.user', 'managers.user', 'managers.role']),
+                        $tx
+                    );
+                    $this->notifyProduct($productSale, $tx, $productType);
+                }
                 $tx->processed_at = now();
                 $tx->save();
-                $this->notifyTree($sale, $gateway, $tx);
             }
 
-            $tx = $tx->fresh(['gateway', 'sale', 'commissions.role']);
+            $tx = $tx->fresh(['gateway', 'sale', 'productSale', 'commissions.role']);
             $tx->setAttribute('was_duplicate', false);
 
             return $tx;
         });
+    }
+
+    private function normalizeProductType(mixed $raw): string
+    {
+        $type = strtolower(trim((string) ($raw ?: 'gateway_profit')));
+        $type = str_replace([' ', '-'], '_', $type);
+
+        return match ($type) {
+            'gateway', 'gateway_payment', 'payment_gateway', '' => 'gateway_profit',
+            'ticket', 'tickets', 'finopal_ticketing' => 'ticketing',
+            default => $type,
+        };
+    }
+
+    /** @return array<string, mixed> */
+    private function productDefinition(string $productType): array
+    {
+        $known = (array) config("finopal.products.{$productType}");
+        if ($known !== []) {
+            return $known;
+        }
+
+        return (array) config('finopal.products._default', [
+            'label' => $productType,
+            'requires_merchant' => false,
+            'requires_owner' => true,
+            'sale_points' => 0,
+        ]);
     }
 
     private function isVerified(string $event, string $status, ?int $code): bool
@@ -105,9 +187,9 @@ class FinopalTransactionService
     {
         $currency = strtoupper((string) ($payload['currency'] ?? 'IRR'));
         $amount = Money::normalize((string) ($payload['amount'] ?? '0'), 3);
-        $profit = $payload['profit'] ?? $payload['gateway_profit'] ?? $payload['fee'] ?? null;
+        $profit = $payload['profit'] ?? $payload['gateway_profit'] ?? $payload['commission_base'] ?? $payload['fee'] ?? null;
         if ($profit === null) {
-            throw new RuntimeException('فیلد profit (سود درگاه در این تراکنش) الزامی است.');
+            throw new RuntimeException('فیلد profit (پایه تقسیم پورسانت این تراکنش) الزامی است.');
         }
         $profit = Money::normalize((string) $profit, 3);
 
@@ -120,23 +202,55 @@ class FinopalTransactionService
         return [$amount, $profit, $currency];
     }
 
-    private function idempotencyKey(array $payload, string $merchant): string
+    private function idempotencyKey(array $payload, string $scope): string
     {
         if (! empty($payload['idempotency_key'])) {
             return (string) $payload['idempotency_key'];
         }
         if (! empty($payload['authority'])) {
-            return 'finopal-'.$merchant.'-'.$payload['authority'];
+            return 'finopal-'.$scope.'-'.$payload['authority'];
         }
         if (! empty($payload['ref_id'])) {
-            return 'finopal-'.$merchant.'-ref-'.$payload['ref_id'];
+            return 'finopal-'.$scope.'-ref-'.$payload['ref_id'];
         }
 
-        return 'finopal-'.$merchant.'-'.sha1(json_encode($payload));
+        return 'finopal-'.$scope.'-'.sha1(json_encode($payload));
     }
 
-    private function notifyTree($sale, Gateway $gateway, FinopalTransaction $tx): void
+    private function notifyTree(GatewaySale $sale, Gateway $gateway, FinopalTransaction $tx, string $productType): void
     {
+        $label = (string) (config("finopal.products.{$productType}.label") ?? $gateway->name);
+        $this->notifyCommissions(
+            $tx,
+            $sale->id,
+            null,
+            $label,
+            "از فروش موفق درگاه «{$gateway->name}»",
+            'gateway.transaction'
+        );
+    }
+
+    private function notifyProduct(ProductSale $sale, FinopalTransaction $tx, string $productType): void
+    {
+        $label = (string) ($sale->title ?: (config("finopal.products.{$productType}.label") ?? $productType));
+        $this->notifyCommissions(
+            $tx,
+            null,
+            $sale->id,
+            $label,
+            "از فروش موفق محصول «{$label}»",
+            'product.transaction'
+        );
+    }
+
+    private function notifyCommissions(
+        FinopalTransaction $tx,
+        ?int $gatewaySaleId,
+        ?int $productSaleId,
+        string $label,
+        string $prefix,
+        string $type,
+    ): void {
         $tx->loadMissing('commissions');
         $byUser = $tx->commissions
             ->groupBy('user_id')
@@ -154,11 +268,14 @@ class FinopalTransactionService
 
             Notification::query()->create([
                 'user_id' => $userId,
-                'type' => 'gateway.transaction',
+                'type' => $type,
                 'title' => 'تبریک! پورسانت شما واریز شد',
-                'body' => "از فروش موفق درگاه «{$gateway->name}»، مبلغ {$pretty} تومان سود سهم شما به کیف پول نقش‌تان واریز شد. دمتون گرم — همین‌طور ادامه بدید!",
+                'body' => "{$prefix}، مبلغ {$pretty} تومان سود سهم شما به کیف پول نقش‌تان واریز شد. دمتون گرم — همین‌طور ادامه بدید!",
                 'data' => [
-                    'gateway_sale_id' => $sale->id,
+                    'gateway_sale_id' => $gatewaySaleId,
+                    'product_sale_id' => $productSaleId,
+                    'product_type' => $tx->product_type,
+                    'product_label' => $label,
                     'finopal_transaction_id' => $tx->id,
                     'commission_amount' => Money::normalize($amount),
                     'path' => 'commissions',

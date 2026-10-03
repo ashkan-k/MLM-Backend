@@ -11,6 +11,7 @@ class Commission extends Model
         'user_id',
         'role_id',
         'gateway_sale_id',
+        'product_sale_id',
         'finopal_transaction_id',
         'rule_version_id',
         'base_amount',
@@ -44,6 +45,11 @@ class Commission extends Model
     public function sale(): BelongsTo
     {
         return $this->belongsTo(GatewaySale::class, 'gateway_sale_id');
+    }
+
+    public function productSale(): BelongsTo
+    {
+        return $this->belongsTo(ProductSale::class, 'product_sale_id');
     }
 
     public function transaction(): BelongsTo

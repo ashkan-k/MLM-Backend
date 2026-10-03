@@ -2,7 +2,6 @@
 
 namespace App\Services\Commission;
 
-use App\Models\GatewaySale;
 use App\Support\Money;
 use InvalidArgumentException;
 
@@ -21,7 +20,8 @@ class CommissionDistributor
         }
     }
 
-    public function split(GatewaySale $sale): array
+    /** @param  object{representatives: iterable, referrers: iterable, managers: iterable}  $sale */
+    public function split(object $sale): array
     {
         $this->assertShares($sale->representatives);
 

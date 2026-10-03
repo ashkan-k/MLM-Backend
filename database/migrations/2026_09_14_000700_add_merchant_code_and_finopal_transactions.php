@@ -14,9 +14,9 @@ return new class extends Migration
 
         Schema::create('finopal_transactions', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('gateway_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('gateway_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('gateway_sale_id')->nullable()->constrained('gateway_sales')->nullOnDelete();
-            $table->string('merchant_code');
+            $table->string('merchant_code')->nullable();
             $table->string('event')->default('transaction.verified');
             $table->string('authority')->nullable()->index();
             $table->string('ref_id')->nullable();
