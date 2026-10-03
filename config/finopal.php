@@ -51,6 +51,13 @@ return [
             'sale_points' => 0,
             'default_code' => 'TICKETING',
         ],
+        'subscription' => [
+            'label' => 'اشتراک فاینوپال',
+            'requires_merchant' => false,
+            'requires_owner' => true,
+            'sale_points' => 0,
+            'default_code' => 'SUBSCRIPTION',
+        ],
         '_default' => [
             'label' => 'سود درگاه پرداخت',
             'requires_merchant' => false,

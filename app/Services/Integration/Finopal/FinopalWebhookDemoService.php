@@ -218,9 +218,8 @@ class FinopalWebhookDemoService
         }
 
         $saleIds = GatewaySale::query()->whereIn('gateway_id', $gatewayIds)->pluck('id');
-        $stakeholderWallets = $this->stakeholderWalletIds(collect($sales));
 
-        DB::transaction(function () use ($gatewayIds, $saleIds, $stakeholderWallets) {
+        DB::transaction(function () use ($gatewayIds, $saleIds) {
             $txIds = FinopalTransaction::query()->whereIn('gateway_id', $gatewayIds)->pluck('id');
             $commissionIds = Commission::query()
                 ->where(function ($q) use ($saleIds, $txIds) {
@@ -232,22 +231,37 @@ class FinopalWebhookDemoService
                 ->pluck('id');
 
             if ($commissionIds->isNotEmpty()) {
-                WalletTransaction::query()
+                // فقط حواله‌های همان پورسانت‌های درگاه را بردار — کیف‌پول را صفر نکن
+                // (پورسانت محصول‌محور و مانده‌های دیگر باید بمانند)
+                $walletTxs = WalletTransaction::query()
                     ->where('reference_type', Commission::class)
                     ->whereIn('reference_id', $commissionIds)
-                    ->delete();
+                    ->get(['id', 'wallet_id', 'type', 'amount']);
+
+                $byWallet = $walletTxs->groupBy('wallet_id');
+                foreach ($byWallet as $walletId => $rows) {
+                    $wallet = Wallet::query()->whereKey($walletId)->lockForUpdate()->first();
+                    if (! $wallet) {
+                        continue;
+                    }
+                    $remove = '0.000';
+                    foreach ($rows as $row) {
+                        if ($row->type === 'commission_credit') {
+                            $remove = Money::add($remove, (string) $row->amount);
+                        }
+                    }
+                    if (Money::cmp($remove, '0') > 0) {
+                        $next = Money::sub((string) $wallet->balance, $remove);
+                        $wallet->balance = Money::cmp($next, '0') < 0 ? '0.000' : $next;
+                        $wallet->save();
+                    }
+                }
+
+                WalletTransaction::query()->whereIn('id', $walletTxs->pluck('id'))->delete();
                 Commission::query()->whereIn('id', $commissionIds)->delete();
             }
 
             FinopalTransaction::query()->whereIn('gateway_id', $gatewayIds)->delete();
-
-            if ($stakeholderWallets->isNotEmpty()) {
-                WalletTransaction::query()->whereIn('wallet_id', $stakeholderWallets)->delete();
-                Wallet::query()->whereIn('id', $stakeholderWallets)->update([
-                    'balance' => '0.000',
-                    'held_balance' => '0.000',
-                ]);
-            }
         });
     }
 
