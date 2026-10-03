@@ -58,6 +58,13 @@ return [
             'sale_points' => 0,
             'default_code' => 'SUBSCRIPTION',
         ],
+        'monthly_bonus_residual' => [
+            'label' => 'مابقی پاداش',
+            'requires_merchant' => false,
+            'requires_owner' => false,
+            'sale_points' => 0,
+            'default_code' => 'BONUS-RESIDUAL',
+        ],
         '_default' => [
             'label' => 'سود درگاه پرداخت',
             'requires_merchant' => false,

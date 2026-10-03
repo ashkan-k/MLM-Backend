@@ -39,8 +39,9 @@ class ProductCatalog
         $type = str_replace([' ', '-'], '_', $type);
 
         return match ($type) {
-            'gateway', 'gateway_payment', 'payment_gateway', '',
-            'monthly_bonus', 'monthly_bonus_residual', 'organizational', 'custom' => 'gateway_profit',
+            'gateway', 'gateway_payment', 'payment_gateway', '' => 'gateway_profit',
+            'monthly_bonus', 'organizational', 'custom' => 'gateway_profit',
+            'monthly_bonus_residual', 'bonus_residual' => 'monthly_bonus_residual',
             'ticket', 'tickets', 'finopal_ticketing' => 'ticketing',
             default => $type,
         };

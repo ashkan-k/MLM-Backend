@@ -47,10 +47,13 @@ class SeedResidualWalletDemoCommand extends Command
         }
 
         $residual->refresh();
+        $amount = '185000.000';
+        $key = 'lab-visual-residual-bonus';
+        $commission = Commission::query()->where('idempotency_key', $key)->first();
+        $walletKey = 'wallet-'.$key;
+
         if ($this->option('force') || Money::cmp((string) $residual->balance, '0') <= 0) {
-            $amount = '185000.000';
-            $key = 'lab-visual-residual-bonus';
-            if (! Commission::query()->where('idempotency_key', $key)->exists()) {
+            if (! $commission) {
                 $commission = Commission::query()->create([
                     'user_id' => $senior->id,
                     'role_id' => $role->id,
@@ -65,17 +68,19 @@ class SeedResidualWalletDemoCommand extends Command
                         'note' => 'نمونه پاداش اضافه برای تست بصری',
                     ],
                 ]);
-                $wallets->credit(
-                    $residual,
-                    $amount,
-                    'monthly_bonus_residual',
-                    'wallet-'.$key,
-                    Commission::class,
-                    $commission->id,
-                    ['type' => 'monthly_bonus_residual', 'visual_demo' => true]
-                );
             }
-            $this->info('نمونه پاداش اضافه: ۱۸۵٬۰۰۰ تومان در کیف جدا.');
+
+            // اگر رکورد پورسانت هست ولی کیف خالی است (پس از ریست ناقص)، دوباره واریز کن
+            $wallets->credit(
+                $residual,
+                Money::normalize((string) $commission->commission_amount, 3),
+                'monthly_bonus_residual',
+                $walletKey,
+                Commission::class,
+                $commission->id,
+                ['type' => 'monthly_bonus_residual', 'visual_demo' => true]
+            );
+            $this->info('نمونه پاداش اضافه در کیف جدا همگام شد: '.$commission->commission_amount.' تومان.');
         } else {
             $this->comment('کیف پاداش اضافه از قبل مانده دارد؛ نمونه جدید واریز نشد.');
         }

@@ -102,6 +102,7 @@ class GatewayController extends Controller
             'managers.user',
             'managers.role',
             'commissions.role',
+            'transactions',
         ]);
 
         if (! $user->isSuperuser() && ! $user->hasRole('senior_manager')) {
