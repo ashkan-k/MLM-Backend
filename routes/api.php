@@ -49,6 +49,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/gateway-sales/{sale}', [GatewayController::class, 'show']);
         Route::post('/gateway-sales/{sale}/inspect', [GatewayController::class, 'inspect']);
         Route::post('/gateway-sales/{sale}/parties', [GatewayController::class, 'updateParties']);
+        Route::get('/product-sales', [GatewayController::class, 'productSales']);
         Route::get('/commissions', [GatewayController::class, 'commissions']);
         Route::get('/monthly-bonus', [MonthlyBonusController::class, 'show']);
         Route::post('/monthly-bonus/pay', [MonthlyBonusController::class, 'pay']);

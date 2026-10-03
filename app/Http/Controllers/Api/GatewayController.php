@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Commission;
 use App\Models\Gateway;
 use App\Models\GatewaySale;
+use App\Models\ProductSale;
 use App\Models\User;
 use App\Services\Authorization\PermissionService;
 use App\Services\Gateway\GatewayReviewService;
 use App\Services\Gateway\GatewaySaleService;
+use App\Support\ProductCatalog;
 use Illuminate\Http\Request;
 
 class GatewayController extends Controller
@@ -67,6 +69,69 @@ class GatewayController extends Controller
                 'my_commission_total',
                 number_format((float) ($totals[$sale->id] ?? 0), 3, '.', '')
             );
+            $sale->setAttribute('product_type', 'gateway_profit');
+            $sale->setAttribute('product_code', 'GATEWAY');
+            $sale->setAttribute('product_label', ProductCatalog::label('gateway_profit'));
+            $sale->setAttribute('sale_kind', 'gateway');
+
+            return $sale;
+        });
+
+        return response()->json($sales);
+    }
+
+    public function productSales(Request $request)
+    {
+        if (! ProductCatalog::oriented()) {
+            return response()->json([
+                'data' => [],
+                'current_page' => 1,
+                'last_page' => 1,
+                'from' => null,
+                'to' => null,
+                'total' => 0,
+                'per_page' => (int) $request->input('per_page', 20),
+            ]);
+        }
+
+        $user = $request->user();
+        $role = $request->attributes->get('active_role');
+        $query = ProductSale::query()->with([
+            'representatives.user',
+            'referrers.user',
+            'managers.user',
+            'managers.role',
+            'commissions.role',
+        ]);
+
+        if (! $user->isSuperuser() && ! $user->hasRole('senior_manager')) {
+            $query->where(function ($q) use ($user) {
+                $q->whereHas('representatives', fn ($s) => $s->where('user_id', $user->id))
+                    ->orWhereHas('referrers', fn ($s) => $s->where('user_id', $user->id))
+                    ->orWhereHas('managers', fn ($s) => $s->where('user_id', $user->id));
+            });
+        }
+
+        $sales = $query->latest('sold_at')->paginate(
+            min(100, max(1, (int) $request->input('per_page', 20)))
+        );
+        $saleIds = $sales->getCollection()->pluck('id');
+
+        $totals = Commission::query()
+            ->where('user_id', $user->id)
+            ->when($role && ! $user->isSuperuser(), fn ($q) => $q->where('role_id', $role->id))
+            ->whereIn('product_sale_id', $saleIds)
+            ->selectRaw('product_sale_id, SUM(commission_amount) as total')
+            ->groupBy('product_sale_id')
+            ->pluck('total', 'product_sale_id');
+
+        $sales->getCollection()->transform(function (ProductSale $sale) use ($totals) {
+            $sale->setAttribute(
+                'my_commission_total',
+                number_format((float) ($totals[$sale->id] ?? 0), 3, '.', '')
+            );
+            $sale->setAttribute('product_label', ProductCatalog::label($sale->product_type));
+            $sale->setAttribute('sale_kind', 'product');
 
             return $sale;
         });
@@ -182,7 +247,7 @@ class GatewayController extends Controller
     {
         $this->assertCanView($request->user(), $sale);
 
-        return response()->json($sale->load([
+        $sale->load([
             'gateway.transactions' => fn ($q) => $q->latest('id')->limit(8),
             'customer',
             'representatives.user',
@@ -191,7 +256,13 @@ class GatewayController extends Controller
             'managers.role',
             'reviews.actor:id,name,mobile',
             'commissions.role',
-        ]));
+        ]);
+        $sale->setAttribute('product_type', 'gateway_profit');
+        $sale->setAttribute('product_code', 'GATEWAY');
+        $sale->setAttribute('product_label', ProductCatalog::label('gateway_profit'));
+        $sale->setAttribute('sale_kind', 'gateway');
+
+        return response()->json($sale);
     }
 
     public function inspect(Request $request, GatewaySale $sale, GatewayReviewService $reviews, PermissionService $permissions)
@@ -247,7 +318,12 @@ class GatewayController extends Controller
             'gateway_sale_id' => ['nullable', 'integer', 'exists:gateway_sales,id'],
         ]);
 
-        $query = Commission::query()->with(['role', 'sale.gateway']);
+        $query = Commission::query()->with([
+            'role',
+            'sale.gateway',
+            'productSale',
+            'transaction',
+        ]);
         if (! $user->isSuperuser()) {
             $query->where('user_id', $user->id);
             if ($role) {
@@ -261,7 +337,36 @@ class GatewayController extends Controller
             $query->whereHas('sale', fn ($q) => $q->where('gateway_id', $data['gateway_id']));
         }
 
-        return response()->json($query->latest()->paginate(20));
+        $page = $query->latest()->paginate(20);
+        $oriented = ProductCatalog::oriented();
+        $page->getCollection()->transform(function (Commission $row) use ($oriented) {
+            $metaProduct = is_array($row->metadata) ? ($row->metadata['product_type'] ?? null) : null;
+            $productType = $oriented
+                ? ($row->transaction?->product_type
+                    ?? $row->productSale?->product_type
+                    ?? $metaProduct
+                    ?? ($row->gateway_sale_id ? 'gateway_profit' : null)
+                    ?? 'gateway_profit')
+                : 'gateway_profit';
+
+            $normalized = ProductCatalog::normalize((string) $productType);
+            $row->setAttribute('product_type', $normalized);
+            $row->setAttribute('product_code', $oriented
+                ? ($row->transaction?->product_code ?? $row->productSale?->product_code)
+                : ($row->transaction?->product_code ?? 'GATEWAY'));
+            $row->setAttribute('product_label', ProductCatalog::label($normalized));
+            $row->setAttribute(
+                'source_title',
+                $row->sale?->gateway?->name
+                    ?? $row->productSale?->title
+                    ?? $row->productSale?->product_code
+                    ?? null
+            );
+
+            return $row;
+        });
+
+        return response()->json($page);
     }
 
     private function assertCanView(User $user, GatewaySale $sale): void

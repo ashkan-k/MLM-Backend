@@ -119,7 +119,24 @@ class SuperuserController extends Controller
 
         $perPage = min(200, max(10, $request->integer('per_page', 30)));
 
-        return response()->json($query->paginate($perPage));
+        return response()->json(
+            $query->paginate($perPage)->through(fn (User $u) => [
+                'id' => $u->id,
+                'name' => $u->name,
+                'mobile' => $u->mobile,
+                'email' => $u->email,
+                'national_id' => $u->national_id,
+                'birth_date' => $u->birth_date?->format('Y-m-d'),
+                'avatar_url' => $u->avatar_url,
+                'is_active' => (bool) $u->is_active,
+                'created_at' => $u->created_at,
+                'roles' => $u->roles->map(fn ($r) => [
+                    'id' => $r->id,
+                    'name' => $r->name,
+                    'slug' => $r->slug,
+                ])->values(),
+            ])
+        );
     }
 
     public function bulkUsers(Request $request, AuditService $audit, UserBlockService $blocks)

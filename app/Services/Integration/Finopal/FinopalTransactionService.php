@@ -10,6 +10,7 @@ use App\Models\ProductSale;
 use App\Services\Commission\CommissionEngine;
 use App\Services\Product\ProductSaleService;
 use App\Support\Money;
+use App\Support\ProductCatalog;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -24,7 +25,7 @@ class FinopalTransactionService
     {
         unset($payload['webhook_secret']);
 
-        $productType = $this->normalizeProductType($payload['product_type'] ?? $payload['productType'] ?? null);
+        $productType = ProductCatalog::normalize($payload['product_type'] ?? $payload['productType'] ?? null);
         $productCode = isset($payload['product_code'])
             ? trim((string) $payload['product_code'])
             : (isset($payload['productCode']) ? trim((string) $payload['productCode']) : null);
@@ -32,7 +33,7 @@ class FinopalTransactionService
             $productCode = null;
         }
 
-        $definition = $this->productDefinition($productType);
+        $definition = ProductCatalog::definition($productType);
         $requiresMerchant = (bool) ($definition['requires_merchant'] ?? ($productType === 'gateway_profit'));
 
         $merchant = trim((string) ($payload['merchant_id'] ?? $payload['merchant_code'] ?? ''));
@@ -139,34 +140,6 @@ class FinopalTransactionService
         });
     }
 
-    private function normalizeProductType(mixed $raw): string
-    {
-        $type = strtolower(trim((string) ($raw ?: 'gateway_profit')));
-        $type = str_replace([' ', '-'], '_', $type);
-
-        return match ($type) {
-            'gateway', 'gateway_payment', 'payment_gateway', '' => 'gateway_profit',
-            'ticket', 'tickets', 'finopal_ticketing' => 'ticketing',
-            default => $type,
-        };
-    }
-
-    /** @return array<string, mixed> */
-    private function productDefinition(string $productType): array
-    {
-        $known = (array) config("finopal.products.{$productType}");
-        if ($known !== []) {
-            return $known;
-        }
-
-        return (array) config('finopal.products._default', [
-            'label' => $productType,
-            'requires_merchant' => false,
-            'requires_owner' => true,
-            'sale_points' => 0,
-        ]);
-    }
-
     private function isVerified(string $event, string $status, ?int $code): bool
     {
         if (in_array($status, ['failed', 'nok', 'canceled', 'cancelled', 'rejected'], true)) {
@@ -219,7 +192,7 @@ class FinopalTransactionService
 
     private function notifyTree(GatewaySale $sale, Gateway $gateway, FinopalTransaction $tx, string $productType): void
     {
-        $label = (string) (config("finopal.products.{$productType}.label") ?? $gateway->name);
+        $label = ProductCatalog::label($productType);
         $this->notifyCommissions(
             $tx,
             $sale->id,
@@ -232,7 +205,7 @@ class FinopalTransactionService
 
     private function notifyProduct(ProductSale $sale, FinopalTransaction $tx, string $productType): void
     {
-        $label = (string) ($sale->title ?: (config("finopal.products.{$productType}.label") ?? $productType));
+        $label = (string) ($sale->title ?: ProductCatalog::label($productType));
         $this->notifyCommissions(
             $tx,
             null,

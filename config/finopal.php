@@ -23,6 +23,12 @@ return [
     'sync_default_password' => env('FINOPAL_SYNC_DEFAULT_PASSWORD', 'Password123!'),
 
     /*
+    | When true: UI/copy/columns are product-oriented (gateway, ticketing, …).
+    | When false: classic gateway-only panels and wording (legacy).
+    */
+    'product_oriented' => filter_var(env('FINOPAL_PRODUCT_ORIENTED', false), FILTER_VALIDATE_BOOLEAN),
+
+    /*
     |--------------------------------------------------------------------------
     | Product catalog (commission source types)
     |--------------------------------------------------------------------------
@@ -46,7 +52,7 @@ return [
             'default_code' => 'TICKETING',
         ],
         '_default' => [
-            'label' => 'محصول سفارشی',
+            'label' => 'سود درگاه پرداخت',
             'requires_merchant' => false,
             'requires_owner' => true,
             'sale_points' => 0,

@@ -263,6 +263,7 @@ class AuthController extends Controller
             'permissions' => app(PermissionService::class)->slugsFor($user, $role),
             'features' => [
                 'shared_links' => SystemSetting::sharedLinkFeatures(),
+                'product_oriented' => (bool) config('finopal.product_oriented', false),
             ],
         ];
     }
