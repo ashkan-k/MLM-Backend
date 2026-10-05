@@ -12,9 +12,11 @@ use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\PointsController;
 use App\Http\Controllers\Api\PromotionController;
 use App\Http\Controllers\Api\ReferralController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SmsDebugController;
 use App\Http\Controllers\Api\SuperuserController;
 use App\Http\Controllers\Api\TrainingController;
+use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\WalletController;
 use App\Http\Controllers\Api\WithdrawalController;
 use Illuminate\Support\Facades\Route;
@@ -33,6 +35,7 @@ Route::middleware(['auth.api'])->group(function () {
 
     Route::middleware(['active.role'])->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'show']);
+        Route::get('/reports', [ReportController::class, 'show']);
         Route::get('/organization/tree', [OrganizationController::class, 'tree']);
         Route::get('/organization/team', [OrganizationController::class, 'team']);
         Route::get('/representatives', [OrganizationController::class, 'representatives']);
@@ -44,6 +47,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/wallet-transactions', [WalletController::class, 'transactions']);
 
         Route::get('/gateways', [GatewayController::class, 'index']);
+        Route::get('/transactions', [TransactionController::class, 'index']);
         Route::get('/gateway-sales', [GatewayController::class, 'sales']);
         Route::post('/gateway-sales', [GatewayController::class, 'store']);
         Route::get('/gateway-sales/{sale}', [GatewayController::class, 'show']);

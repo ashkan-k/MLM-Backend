@@ -19,6 +19,27 @@ class SuperuserReportService
 {
     public function __construct(private OrganizationTreeService $tree) {}
 
+    /**
+     * Force reports into the actor's organization subtree (self + descendants).
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    public function constrainForManager(User $actor, array $filters): array
+    {
+        $allowed = $this->tree->descendants($actor)->pluck('id')->push($actor->id)->all();
+        $requested = filled($filters['user_id'] ?? null) ? (int) $filters['user_id'] : $actor->id;
+        if (! in_array($requested, $allowed, true)) {
+            $requested = $actor->id;
+        }
+        $filters['user_id'] = $requested;
+        if (! array_key_exists('include_descendants', $filters)) {
+            $filters['include_descendants'] = true;
+        }
+
+        return $filters;
+    }
+
     public function build(array $filters): array
     {
         [$from, $to] = $this->period($filters);
@@ -100,7 +121,12 @@ class SuperuserReportService
                 ->values()
                 ->take(20)
                 ->all(),
-            'users_by_role' => Role::query()->withCount(['users' => fn ($q) => $q->where('user_roles.is_active', true)])->get()
+            'users_by_role' => Role::query()->withCount(['users' => function ($q) use ($userIds) {
+                $q->where('user_roles.is_active', true);
+                if ($userIds !== null) {
+                    $q->whereIn('users.id', $userIds);
+                }
+            }])->get()
                 ->map(fn (Role $role) => [
                     'id' => $role->id,
                     'label' => $role->name,

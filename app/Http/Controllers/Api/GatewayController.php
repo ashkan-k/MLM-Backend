@@ -32,6 +32,7 @@ class GatewayController extends Controller
     {
         $user = $request->user();
         $role = $request->attributes->get('active_role');
+        $filters = $this->saleFilters($request);
         $query = GatewaySale::query()->with([
             'gateway.transactions' => fn ($q) => $q->latest('id')->limit(8),
             'customer',
@@ -50,6 +51,8 @@ class GatewayController extends Controller
                     ->orWhereHas('managers', fn ($s) => $s->where('user_id', $user->id));
             });
         }
+
+        $this->applySaleFilters($query, $filters, gatewayMode: true);
 
         $sales = $query->latest('sold_at')->paginate(
             min(100, max(1, (int) $request->input('per_page', 20)))
@@ -96,6 +99,7 @@ class GatewayController extends Controller
 
         $user = $request->user();
         $role = $request->attributes->get('active_role');
+        $filters = $this->saleFilters($request);
         $query = ProductSale::query()->with([
             'representatives.user',
             'referrers.user',
@@ -112,6 +116,8 @@ class GatewayController extends Controller
                     ->orWhereHas('managers', fn ($s) => $s->where('user_id', $user->id));
             });
         }
+
+        $this->applySaleFilters($query, $filters, gatewayMode: false);
 
         $sales = $query->latest('sold_at')->paginate(
             min(100, max(1, (int) $request->input('per_page', 20)))
@@ -385,5 +391,58 @@ class GatewayController extends Controller
         if (! $ids->contains($user->id)) {
             abort(403, 'دسترسی به این درگاه مجاز نیست.');
         }
+    }
+
+    /**
+     * @return array{search:?string,status:?string,from:?string,to:?string}
+     */
+    private function saleFilters(Request $request): array
+    {
+        $data = $request->validate([
+            'search' => ['nullable', 'string', 'max:120'],
+            'status' => ['nullable', 'string', 'max:40'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        return [
+            'search' => filled($data['search'] ?? null) ? trim((string) $data['search']) : null,
+            'status' => filled($data['status'] ?? null) ? (string) $data['status'] : null,
+            'from' => filled($data['from'] ?? null) ? (string) $data['from'] : null,
+            'to' => filled($data['to'] ?? null) ? (string) $data['to'] : null,
+        ];
+    }
+
+    private function applySaleFilters($query, array $filters, bool $gatewayMode): void
+    {
+        if ($filters['status']) {
+            $query->where('status', $filters['status']);
+        }
+        if ($filters['from']) {
+            $query->whereDate('sold_at', '>=', $filters['from']);
+        }
+        if ($filters['to']) {
+            $query->whereDate('sold_at', '<=', $filters['to']);
+        }
+        if (! $filters['search']) {
+            return;
+        }
+
+        $term = '%'.$filters['search'].'%';
+        $query->where(function ($q) use ($term, $gatewayMode) {
+            if ($gatewayMode) {
+                $q->whereHas('gateway', fn ($g) => $g->where('name', 'like', $term)
+                    ->orWhere('external_id', 'like', $term)
+                    ->orWhere('merchant_code', 'like', $term))
+                    ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', $term)
+                        ->orWhere('mobile', 'like', $term)
+                        ->orWhere('national_id', 'like', $term));
+            } else {
+                $q->where('title', 'like', $term)
+                    ->orWhere('product_code', 'like', $term)
+                    ->orWhere('product_type', 'like', $term);
+            }
+            $q->orWhereHas('representatives.user', fn ($u) => $u->where('name', 'like', $term)->orWhere('mobile', 'like', $term));
+        });
     }
 }

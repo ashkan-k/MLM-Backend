@@ -2,6 +2,7 @@ import http from 'node:http'
 import { WebSocketServer } from 'ws'
 
 const port = Number(process.env.FINOPAL_WS_PORT || 6001)
+const host = process.env.FINOPAL_WS_HOST || '127.0.0.1'
 const secret = process.env.FINOPAL_WS_SECRET || 'finopal-ws-secret'
 const api = process.env.FINOPAL_API_URL || 'http://127.0.0.1:8000'
 const clients = new Map()
@@ -32,7 +33,7 @@ const server = http.createServer((req, res) => {
     })
     return
   }
-  res.writeHead(200).end('finopal-ws')
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }).end('finopal-ws')
 })
 
 async function persistChat(token, conversationId, body) {
@@ -80,4 +81,4 @@ wss.on('connection', (socket, req) => {
   socket.on('close', () => clients.get(userId)?.delete(socket))
 })
 
-server.listen(port, () => console.log(`Finopal websocket on :${port}`))
+server.listen(port, host, () => console.log(`Finopal websocket on ${host}:${port} → API ${api}`))
