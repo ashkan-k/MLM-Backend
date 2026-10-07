@@ -323,6 +323,9 @@ class GatewayController extends Controller
         $data = $request->validate([
             'gateway_id' => ['nullable', 'integer', 'exists:gateways,id'],
             'gateway_sale_id' => ['nullable', 'integer', 'exists:gateway_sales,id'],
+            'authority' => ['nullable', 'string', 'max:120'],
+            'ref_id' => ['nullable', 'string', 'max:120'],
+            'search' => ['nullable', 'string', 'max:120'],
         ]);
 
         $query = Commission::query()->with([
@@ -342,6 +345,25 @@ class GatewayController extends Controller
             $query->where('gateway_sale_id', $data['gateway_sale_id']);
         } elseif (! empty($data['gateway_id'])) {
             $query->whereHas('sale', fn ($q) => $q->where('gateway_id', $data['gateway_id']));
+        }
+
+        if (filled($data['authority'] ?? null)) {
+            $term = '%'.trim((string) $data['authority']).'%';
+            $query->whereHas('transaction', fn ($q) => $q->where('authority', 'like', $term));
+        }
+        if (filled($data['ref_id'] ?? null)) {
+            $term = '%'.trim((string) $data['ref_id']).'%';
+            $query->whereHas('transaction', fn ($q) => $q->where(function ($inner) use ($term) {
+                $inner->where('ref_id', 'like', $term)->orWhere('order_id', 'like', $term);
+            }));
+        }
+        if (filled($data['search'] ?? null)) {
+            $term = '%'.trim((string) $data['search']).'%';
+            $query->whereHas('transaction', fn ($q) => $q->where(function ($inner) use ($term) {
+                $inner->where('authority', 'like', $term)
+                    ->orWhere('ref_id', 'like', $term)
+                    ->orWhere('order_id', 'like', $term);
+            }));
         }
 
         $page = $query->latest()->paginate(20);
@@ -369,6 +391,9 @@ class GatewayController extends Controller
                     ?? $row->productSale?->product_code
                     ?? null
             );
+            $row->setAttribute('transaction_authority', $row->transaction?->authority);
+            $row->setAttribute('transaction_ref', $row->transaction?->ref_id);
+            $row->setAttribute('transaction_id', $row->transaction?->id);
 
             return $row;
         });
