@@ -114,6 +114,7 @@ Route::middleware(['auth.api'])->group(function () {
             Route::delete('/courses/{course}', [SuperuserController::class, 'destroyCourse']);
             Route::post('/course-levels/{level}/file', [SuperuserController::class, 'uploadLevelFile']);
             Route::post('/course-chapters/{chapter}/file', [SuperuserController::class, 'uploadChapterFile']);
+            Route::post('/course-editor/upload', [SuperuserController::class, 'uploadEditorFile']);
         });
     });
 

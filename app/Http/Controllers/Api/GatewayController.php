@@ -146,11 +146,13 @@ class GatewayController extends Controller
         return response()->json($sales);
     }
 
-    public function store(Request $request, GatewaySaleService $sales, PermissionService $permissions)
+    public function store(Request $request, GatewaySaleService $sales)
     {
         $user = $request->user();
-        if (! $user->isSuperuser() && ! $permissions->can($user, 'representative.gateway.create') && ! $permissions->can($user, 'superuser.gateway.create')) {
-            abort(403, 'برای ثبت درگاه باید نقش نماینده فعال باشد یا دسترسی ثبت درگاه داشته باشید.');
+        // Any authenticated org role may register a gateway/sale for themselves.
+        // Ownership is forced to the current user below (except superuser assigning another rep).
+        if (! $user) {
+            abort(401);
         }
 
         $personType = $request->input('customer.person_type', 'individual');
@@ -241,6 +243,7 @@ class GatewayController extends Controller
         }
         $data['customer']['documents'] = $docs;
 
+        // Non-superusers always own the registration themselves (solo / referral).
         if (! $user->isSuperuser() && empty($data['shared_link_id'])) {
             $data['representative_user_id'] = $user->id;
         } elseif (empty($data['representative_user_id']) && empty($data['shared_link_id'])) {

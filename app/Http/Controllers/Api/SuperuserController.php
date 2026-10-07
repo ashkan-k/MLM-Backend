@@ -511,6 +511,32 @@ class SuperuserController extends Controller
         return response()->json(['ok' => true, 'count' => $done]);
     }
 
+    /**
+     * CKEditor Simple Upload Adapter → { url }.
+     * Accepts field name "upload" (CKEditor default) or "file".
+     */
+    public function uploadEditorFile(Request $request)
+    {
+        $file = $request->file('upload') ?? $request->file('file');
+        if (! $file) {
+            return response()->json(['error' => ['message' => 'فایلی ارسال نشده است.']], 422);
+        }
+
+        validator(
+            ['file' => $file],
+            ['file' => $this->courseEditorUploadRules()]
+        )->validate();
+
+        $path = $file->store('course-editor/'.date('Y/m'), 'public');
+        $url = Storage::disk('public')->url($path);
+
+        return response()->json([
+            'url' => $url,
+            'uploaded' => true,
+            'fileName' => $file->getClientOriginalName(),
+        ]);
+    }
+
     public function uploadLevelFile(Request $request, CourseLevel $level)
     {
         $request->validate(['file' => $this->courseUploadRules()]);
@@ -562,6 +588,17 @@ class SuperuserController extends Controller
             'required',
             'file',
             'max:102400',
+            'extensions:jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,zip,mp4,webm,mp3,mov,m4v',
+        ];
+    }
+
+    /** Slightly tighter limits for inline editor embeds (images + common docs/media). */
+    private function courseEditorUploadRules(): array
+    {
+        return [
+            'required',
+            'file',
+            'max:51200',
             'extensions:jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,zip,mp4,webm,mp3,mov,m4v',
         ];
     }
