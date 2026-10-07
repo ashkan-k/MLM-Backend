@@ -8,6 +8,7 @@ use App\Models\Commission;
 use App\Models\CommissionRule;
 use App\Models\Course;
 use App\Models\CourseLevel;
+use App\Models\CourseLevelChapter;
 use App\Models\FraSoftSyncLog;
 use App\Models\GatewaySale;
 use App\Models\OrganizationNode;
@@ -428,7 +429,7 @@ class SuperuserController extends Controller
             return $this->storeCourse($request);
         }
 
-        return response()->json(Course::query()->with(['levels', 'roles'])->get());
+        return response()->json(Course::query()->with(['levels.chapters', 'roles'])->orderBy('id')->get());
     }
 
     public function storeCourse(Request $request)
@@ -442,10 +443,11 @@ class SuperuserController extends Controller
         ]);
         $course->roles()->sync($data['role_ids'] ?? []);
         foreach ($data['levels'] ?? [] as $index => $level) {
-            $course->levels()->create($this->levelPayload($level, $index));
+            $row = $course->levels()->create($this->levelPayload($level, $index));
+            $this->syncLevelChapters($row, $level['chapters'] ?? []);
         }
 
-        return response()->json($course->load(['levels', 'roles']), 201);
+        return response()->json($course->load(['levels.chapters', 'roles']), 201);
     }
 
     public function updateCourse(Request $request, Course $course, AuditService $audit)
@@ -467,16 +469,19 @@ class SuperuserController extends Controller
                 $row = $course->levels()->where('id', $level['id'])->first();
                 if ($row) {
                     $row->update($payload);
+                    $this->syncLevelChapters($row, $level['chapters'] ?? []);
                     $keep[] = $row->id;
                     continue;
                 }
             }
-            $keep[] = $course->levels()->create($payload)->id;
+            $row = $course->levels()->create($payload);
+            $this->syncLevelChapters($row, $level['chapters'] ?? []);
+            $keep[] = $row->id;
         }
         $course->levels()->whereNotIn('id', $keep ?: [0])->delete();
         $audit->record($request->user(), 'course.updated', $course, $old, $course->only(['title', 'description', 'is_required_for_promotion']));
 
-        return response()->json($course->fresh(['levels', 'roles']));
+        return response()->json($course->fresh(['levels.chapters', 'roles']));
     }
 
     public function destroyCourse(Request $request, Course $course, AuditService $audit)
@@ -508,24 +513,74 @@ class SuperuserController extends Controller
 
     public function uploadLevelFile(Request $request, CourseLevel $level)
     {
-        $request->validate([
-            'file' => ['required', 'file', 'max:20480', 'mimes:jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,zip,mp4,webm,mp3'],
-        ]);
+        $request->validate(['file' => $this->courseUploadRules()]);
 
         $file = $request->file('file');
         if ($level->attachment_path) {
             Storage::disk('public')->delete($level->attachment_path);
         }
         $path = $file->store('course-content/'.$level->course_id, 'public');
-        $mime = (string) $file->getMimeType();
-        $type = str_starts_with($mime, 'video/') ? 'video' : (str_contains($mime, 'pdf') ? 'pdf' : 'file');
+        $type = $this->courseContentTypeFromUpload($file);
         $level->update([
             'attachment_path' => $path,
             'attachment_name' => $file->getClientOriginalName(),
             'content_type' => in_array($level->content_type, ['text', 'html'], true) ? $type : $level->content_type,
         ]);
 
-        return response()->json($level->fresh());
+        return response()->json($level->fresh('chapters'));
+    }
+
+    public function uploadChapterFile(Request $request, CourseLevelChapter $chapter)
+    {
+        $request->validate(['file' => $this->courseUploadRules()]);
+
+        $file = $request->file('file');
+        if ($chapter->attachment_path) {
+            Storage::disk('public')->delete($chapter->attachment_path);
+        }
+        $courseId = $chapter->level?->course_id ?? $chapter->level()->value('course_id');
+        $path = $file->store('course-content/'.$courseId, 'public');
+        $type = $this->courseContentTypeFromUpload($file);
+        $chapter->update([
+            'attachment_path' => $path,
+            'attachment_name' => $file->getClientOriginalName(),
+            // Always sync type from the uploaded file for media; keep text/html only when not media.
+            'content_type' => $type,
+        ]);
+
+        return response()->json($chapter->fresh());
+    }
+
+    /**
+     * Prefer extension checks: many hosts sniff mp4 as application/octet-stream and fail `mimes:mp4`.
+     *
+     * @return list<string|\Illuminate\Validation\Rules\File>
+     */
+    private function courseUploadRules(): array
+    {
+        return [
+            'required',
+            'file',
+            'max:102400',
+            'extensions:jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,zip,mp4,webm,mp3,mov,m4v',
+        ];
+    }
+
+    private function courseContentTypeFromUpload(\Illuminate\Http\UploadedFile $file): string
+    {
+        $ext = strtolower((string) $file->getClientOriginalExtension());
+        $mime = (string) ($file->getMimeType() ?: '');
+        if (in_array($ext, ['mp4', 'webm', 'mov', 'm4v'], true) || str_starts_with($mime, 'video/')) {
+            return 'video';
+        }
+        if ($ext === 'pdf' || str_contains($mime, 'pdf')) {
+            return 'pdf';
+        }
+        if (in_array($ext, ['mp3'], true) || str_starts_with($mime, 'audio/')) {
+            return 'file';
+        }
+
+        return 'file';
     }
 
     public function audits(Request $request)
@@ -651,20 +706,73 @@ class SuperuserController extends Controller
             'levels.*.content_type' => ['nullable', 'in:text,html,video,pdf,file'],
             'levels.*.content_body' => ['nullable', 'string'],
             'levels.*.content_url' => ['nullable', 'string'],
+            'levels.*.chapters' => ['nullable', 'array'],
+            'levels.*.chapters.*.id' => ['nullable', 'integer'],
+            'levels.*.chapters.*.title' => ['required_with:levels.*.chapters', 'string'],
+            'levels.*.chapters.*.sort_order' => ['nullable', 'integer'],
+            'levels.*.chapters.*.content_type' => ['nullable', 'in:text,html,video,pdf,file'],
+            'levels.*.chapters.*.content_body' => ['nullable', 'string'],
+            'levels.*.chapters.*.content_url' => ['nullable', 'string'],
         ]);
     }
 
     private function levelPayload(array $level, int $index): array
     {
+        $firstChapter = ($level['chapters'] ?? [])[0] ?? null;
+
         return [
             'title' => $level['title'],
             'sort_order' => $level['sort_order'] ?? ($index + 1),
             'passing_score' => $level['passing_score'],
-            'content_type' => $level['content_type'] ?? 'text',
-            'content_body' => $level['content_body'] ?? null,
-            'content_url' => $level['content_url'] ?? null,
+            // Keep level-level content mirrored from first chapter for backward compatibility.
+            'content_type' => $firstChapter['content_type'] ?? $level['content_type'] ?? 'text',
+            'content_body' => $firstChapter['content_body'] ?? $level['content_body'] ?? null,
+            'content_url' => $firstChapter['content_url'] ?? $level['content_url'] ?? null,
             'is_active' => true,
         ];
+    }
+
+    private function syncLevelChapters(CourseLevel $level, array $chapters): void
+    {
+        if ($chapters === []) {
+            // Ensure at least one chapter exists (migrate from level content if needed).
+            if ($level->chapters()->count() === 0) {
+                $level->chapters()->create([
+                    'title' => 'فصل ۱',
+                    'sort_order' => 1,
+                    'content_type' => $level->content_type ?? 'text',
+                    'content_body' => $level->content_body,
+                    'content_url' => $level->content_url,
+                    'attachment_path' => $level->attachment_path,
+                    'attachment_name' => $level->attachment_name,
+                    'is_active' => true,
+                ]);
+            }
+
+            return;
+        }
+
+        $keep = [];
+        foreach ($chapters as $index => $chapter) {
+            $payload = [
+                'title' => $chapter['title'] ?? ('فصل '.($index + 1)),
+                'sort_order' => $chapter['sort_order'] ?? ($index + 1),
+                'content_type' => $chapter['content_type'] ?? 'text',
+                'content_body' => $chapter['content_body'] ?? null,
+                'content_url' => $chapter['content_url'] ?? null,
+                'is_active' => true,
+            ];
+            if (! empty($chapter['id'])) {
+                $row = $level->chapters()->where('id', $chapter['id'])->first();
+                if ($row) {
+                    $row->update($payload);
+                    $keep[] = $row->id;
+                    continue;
+                }
+            }
+            $keep[] = $level->chapters()->create($payload)->id;
+        }
+        $level->chapters()->whereNotIn('id', $keep ?: [0])->delete();
     }
 
     private function settingsSchema(): array

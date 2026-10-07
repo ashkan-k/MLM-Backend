@@ -8,13 +8,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
 
-class CourseLevel extends Model
+class CourseLevelChapter extends Model
 {
     protected $fillable = [
-        'course_id',
+        'course_level_id',
         'title',
         'sort_order',
-        'passing_score',
         'content_type',
         'content_body',
         'content_url',
@@ -28,7 +27,6 @@ class CourseLevel extends Model
     protected function casts(): array
     {
         return [
-            'passing_score' => 'decimal:2',
             'is_active' => 'boolean',
         ];
     }
@@ -38,18 +36,13 @@ class CourseLevel extends Model
         return Attribute::get(fn () => $this->attachment_path ? Storage::disk('public')->url($this->attachment_path) : null);
     }
 
-    public function course(): BelongsTo
+    public function level(): BelongsTo
     {
-        return $this->belongsTo(Course::class);
+        return $this->belongsTo(CourseLevel::class, 'course_level_id');
     }
 
     public function progress(): HasMany
     {
-        return $this->hasMany(UserCourseProgress::class);
-    }
-
-    public function chapters(): HasMany
-    {
-        return $this->hasMany(CourseLevelChapter::class)->orderBy('sort_order');
+        return $this->hasMany(UserCourseChapterProgress::class);
     }
 }

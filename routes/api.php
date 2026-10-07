@@ -83,6 +83,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/courses/progress', [TrainingController::class, 'progress']);
         Route::get('/courses/team-progress', [TrainingController::class, 'teamProgress']);
         Route::post('/courses/{course}/levels/{level}/submit', [TrainingController::class, 'submit']);
+        Route::post('/courses/{course}/levels/{level}/chapters/{chapter}/complete', [TrainingController::class, 'completeChapter']);
 
         Route::get('/chat/directory', [ChatController::class, 'directory']);
         Route::get('/conversations/unread-count', [ChatController::class, 'unread']);
@@ -112,6 +113,7 @@ Route::middleware(['auth.api'])->group(function () {
             Route::put('/courses/{course}', [SuperuserController::class, 'updateCourse']);
             Route::delete('/courses/{course}', [SuperuserController::class, 'destroyCourse']);
             Route::post('/course-levels/{level}/file', [SuperuserController::class, 'uploadLevelFile']);
+            Route::post('/course-chapters/{chapter}/file', [SuperuserController::class, 'uploadChapterFile']);
         });
     });
 
