@@ -105,7 +105,11 @@ class PromotionController extends Controller
     {
         $target = $request->query('target', 'sales_manager');
 
-        return response()->json($service->evaluate($request->user(), $target));
+        return response()->json(
+            collect($service->evaluate($request->user(), $target))
+                ->reject(fn ($row) => ($row['code'] ?? '') === 'team_satisfaction')
+                ->values()
+        );
     }
 
     public function store(Request $request, PromotionService $service)
@@ -140,7 +144,9 @@ class PromotionController extends Controller
             ? collect($service->evaluate($promotion->user, $targetSlug))->keyBy('code')
             : collect();
 
-        return $promotion->criteria->map(function ($row) use ($live, $promotion) {
+        return $promotion->criteria
+            ->reject(fn ($row) => $row->criterion_code === 'team_satisfaction')
+            ->map(function ($row) use ($live, $promotion) {
             $code = (string) $row->criterion_code;
             $boolean = in_array($code, ['senior_assessment', 'team_satisfaction'], true);
 
