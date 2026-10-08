@@ -10,6 +10,7 @@ use App\Models\SharedLink;
 use App\Models\SystemSetting;
 use App\Services\Commission\CommissionDistributor;
 use App\Services\Commission\SalePartyResolver;
+use App\Services\Integration\Finopal\VipGatewayProvisioner;
 use App\Services\Referral\SharedLinkService;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +23,7 @@ class GatewaySaleService
         private readonly CommissionDistributor $distributor,
         private readonly GatewayReviewService $reviews,
         private readonly SalePartyResolver $parties,
+        private readonly VipGatewayProvisioner $finopal,
     ) {}
 
     public function record(array $payload): GatewaySale
@@ -129,7 +131,13 @@ class GatewaySaleService
                 $this->reviews->notifySubmitted($sale);
             }
 
-            return $sale->fresh(['gateway', 'customer', 'representatives.user', 'referrers.user', 'managers.user', 'reviews.actor', 'commissions']);
+            $sale = $sale->fresh(['gateway', 'customer', 'representatives.user', 'referrers.user', 'managers.user', 'managers.role', 'reviews.actor', 'commissions']);
+            if (! empty($payload['sync_finopal'])) {
+                $this->finopal->provision($sale);
+                $sale = $sale->fresh(['gateway', 'customer', 'representatives.user', 'referrers.user', 'managers.user', 'managers.role', 'reviews.actor', 'commissions']);
+            }
+
+            return $sale;
         });
     }
 
@@ -176,6 +184,18 @@ class GatewaySaleService
                     }
                 }
             }
+
+            $sale = $sale->fresh([
+                'gateway',
+                'customer',
+                'representatives.user',
+                'referrers.user',
+                'managers.user',
+                'managers.role',
+                'reviews.actor',
+                'commissions.role',
+            ]);
+            $this->finopal->provision($sale);
 
             return $sale->fresh([
                 'gateway',

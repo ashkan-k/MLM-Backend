@@ -19,6 +19,18 @@ return [
     'ws_server' => env('FINOPAL_WS_URL', 'http://127.0.0.1:6001'),
     'ws_secret' => env('FINOPAL_WS_SECRET', 'finopal-ws-secret'),
     'webhook_secret' => env('FINOPAL_WEBHOOK_SECRET', ''),
+
+    /*
+    | Outbound VIP Partner API (finopal.ir/api/vip/v1).
+    | Create/edit of a gateway sale pushes the shop to the official FinoPal panel.
+    */
+    'vip' => [
+        'enabled' => filter_var(env('FINOPAL_VIP_SYNC', true), FILTER_VALIDATE_BOOLEAN),
+        'base_url' => env('FINOPAL_VIP_BASE_URL', 'https://finopal.ir'),
+        'key' => env('FINOPAL_VIP_PARTNER_KEY', ''),
+        'secret' => env('FINOPAL_VIP_PARTNER_SECRET', ''),
+        'timeout' => (int) env('FINOPAL_VIP_TIMEOUT', 60),
+    ],
     /** Default password for users created via org-structure webhook. */
     'sync_default_password' => env('FINOPAL_SYNC_DEFAULT_PASSWORD', 'Password123!'),
 

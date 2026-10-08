@@ -156,6 +156,10 @@ class GatewayController extends Controller
         }
 
         $personType = $request->input('customer.person_type', 'individual');
+        if ($personType === 'real') {
+            $personType = 'individual';
+            $request->merge(['customer' => array_merge($request->input('customer', []), ['person_type' => 'individual'])]);
+        }
         $isLegal = $personType === 'legal';
 
         $data = $request->validate([
@@ -167,59 +171,85 @@ class GatewayController extends Controller
             'representative_user_id' => ['nullable', 'exists:users,id'],
             'shared_link_id' => ['nullable', 'exists:shared_links,id'],
             'representatives' => ['nullable', 'array'],
-            'customer.name' => ['required', 'string'],
-            'customer.mobile' => ['required', 'string'],
-            'customer.national_id' => ['required', 'string', 'size:10'],
+            'customer.name' => ['nullable', 'string'],
+            'customer.first_name' => ['required', 'string', 'max:80'],
+            'customer.last_name' => ['required', 'string', 'max:80'],
+            'customer.first_name_en' => ['required', 'string', 'regex:/^[A-Za-z][A-Za-z \\-]{1,40}$/'],
+            'customer.last_name_en' => ['required', 'string', 'regex:/^[A-Za-z][A-Za-z \\-]{1,40}$/'],
+            'customer.mobile' => ['required', 'regex:/^09\\d{9}$/'],
+            'customer.national_id' => ['required', 'digits:10'],
             'customer.sheba' => ['required', 'string', 'regex:/^(IR)?[0-9]{24}$/i'],
-            'customer.person_type' => ['nullable', 'in:individual,legal'],
-            'customer.email' => ['nullable', 'email'],
-            'customer.father_name' => ['nullable', 'string'],
-            'customer.birth_date' => ['nullable', 'date'],
-            'customer.birth_certificate_no' => ['nullable', 'string'],
+            'customer.backup_sheba' => ['required', 'string', 'regex:/^(IR)?[0-9]{24}$/i'],
+            'customer.person_type' => ['nullable', 'in:individual,legal,real'],
+            'customer.email' => ['required', 'email'],
+            'customer.father_name' => ['required', 'string', 'max:80'],
+            'customer.father_name_en' => ['required', 'string', 'regex:/^[A-Za-z][A-Za-z \\-]{1,40}$/'],
+            'customer.birth_date' => ['required', 'date'],
+            'customer.birth_certificate_no' => ['nullable', 'string', 'max:20'],
             'customer.birth_place' => ['nullable', 'string'],
-            'customer.gender' => ['nullable', 'string'],
-            'customer.province' => [$isLegal ? 'required' : 'nullable', 'string'],
-            'customer.city' => [$isLegal ? 'required' : 'nullable', 'string'],
-            'customer.address' => [$isLegal ? 'required' : 'nullable', 'string'],
-            'customer.postal_code' => [$isLegal ? 'required' : 'nullable', 'string'],
-            'customer.bank_name' => ['nullable', 'string'],
+            'customer.gender' => ['required', 'in:0,1,male,female'],
+            'customer.province' => ['required', 'string'],
+            'customer.city' => ['required', 'string'],
+            'customer.state_id' => ['required', 'integer'],
+            'customer.city_id' => ['required', 'integer'],
+            'customer.address' => ['required', 'string', 'min:5'],
+            'customer.address_title' => ['nullable', 'string', 'max:40'],
+            'customer.phone' => ['nullable', 'regex:/^0\\d{2,3}-?\\d{7,8}$/'],
+            'customer.postal_code' => ['required', 'digits:10'],
+            'customer.bank_name' => ['nullable', 'string', 'max:80'],
+            'customer.bank_code' => ['nullable', 'digits:3'],
             'customer.account_number' => ['nullable', 'string'],
             'customer.account_holder' => ['nullable', 'string'],
-            'customer.shop_name' => [$isLegal ? 'required' : 'nullable', 'string'],
-            'customer.shop_category' => [$isLegal ? 'required' : 'nullable', 'string'],
-            'customer.website' => ['nullable', 'string'],
+            'customer.shop_name' => ['required', 'string', 'max:120'],
+            'customer.shop_name_en' => ['required', 'string', 'regex:/^[A-Za-z0-9][A-Za-z0-9 \\-]{1,60}$/'],
+            'customer.shop_category' => ['nullable', 'string'],
+            'customer.category_id' => ['required', 'integer'],
+            'customer.website' => ['required', 'url', 'max:200'],
+            'customer.callback_url' => ['required', 'url', 'max:200'],
+            'customer.server_ip' => ['required', 'ip'],
+            'customer.tax' => ['required', 'digits_between:10,14'],
             'customer.company_name' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'customer.company_name_en' => [$isLegal ? 'required' : 'nullable', 'string', 'regex:/^[A-Za-z0-9][A-Za-z0-9 \\-]{1,80}$/'],
             'customer.registration_no' => [$isLegal ? 'required' : 'nullable', 'string'],
+            'customer.register_date' => [$isLegal ? 'required' : 'nullable', 'date'],
             'customer.economic_code' => [$isLegal ? 'required' : 'nullable', 'string'],
-            'customer.legal_national_id' => [$isLegal ? 'required' : 'nullable', 'string'],
-            'documents.national_id_front' => ['required', 'file', 'max:5120'],
-            'documents.national_id_back' => ['required', 'file', 'max:5120'],
-            'documents.birth_certificate' => ['required', 'file', 'max:5120'],
-            'documents.selfie' => ['required', 'file', 'max:5120'],
-            'documents.gazette' => [$isLegal ? 'required' : 'nullable', 'file', 'max:5120'],
-            'documents.license' => [$isLegal ? 'required' : 'nullable', 'file', 'max:5120'],
+            'customer.legal_national_id' => [$isLegal ? 'required' : 'nullable', 'digits:11'],
+            'documents.national_id_front' => ['required', 'file', 'extensions:jpg,jpeg,png,pdf', 'max:2048'],
+            'documents.national_id_back' => ['required', 'file', 'extensions:jpg,jpeg,png,pdf', 'max:2048'],
+            'documents.birth_certificate' => ['nullable', 'file', 'extensions:jpg,jpeg,png,pdf', 'max:2048'],
+            'documents.selfie' => ['required', 'file', 'extensions:jpg,jpeg,png,pdf', 'max:2048'],
+            'documents.official_letter' => [$isLegal ? 'required' : 'nullable', 'file', 'extensions:jpg,jpeg,png,pdf', 'max:2048'],
+            'documents.company_statute' => [$isLegal ? 'required' : 'nullable', 'file', 'extensions:jpg,jpeg,png,pdf', 'max:2048'],
+            'documents.gazette' => [$isLegal ? 'required' : 'nullable', 'file', 'extensions:jpg,jpeg,png,pdf', 'max:2048'],
+            'documents.license' => ['nullable', 'file', 'extensions:jpg,jpeg,png,pdf', 'max:2048'],
             'idempotency_key' => ['nullable', 'string'],
             'sold_at' => ['nullable', 'date'],
         ], [
             'customer.sheba.regex' => 'شبا باید ۲۴ رقم باشد (با یا بدون پیشوند IR).',
-            'customer.national_id.size' => 'کد ملی باید دقیقاً ۱۰ رقم باشد.',
+            'customer.backup_sheba.regex' => 'شبا پشتیبان باید ۲۴ رقم باشد (با یا بدون پیشوند IR).',
+            'customer.national_id.digits' => 'کد ملی باید دقیقاً ۱۰ رقم باشد.',
+            'customer.mobile.regex' => 'موبایل باید با ۰۹ شروع شود و ۱۱ رقم باشد.',
             'customer.email.email' => 'فرمت ایمیل معتبر نیست.',
-            'customer.province.required' => 'برای شخص حقوقی، استان الزامی است.',
-            'customer.city.required' => 'برای شخص حقوقی، شهر الزامی است.',
-            'customer.address.required' => 'برای شخص حقوقی، نشانی کامل الزامی است.',
-            'customer.postal_code.required' => 'برای شخص حقوقی، کد پستی الزامی است.',
-            'customer.shop_name.required' => 'برای شخص حقوقی، نام فروشگاه الزامی است.',
-            'customer.shop_category.required' => 'برای شخص حقوقی، صنف/دسته الزامی است.',
-            'customer.company_name.required' => 'نام شرکت الزامی است.',
-            'customer.registration_no.required' => 'شماره ثبت شرکت الزامی است.',
-            'customer.economic_code.required' => 'شناسه اقتصادی الزامی است.',
-            'customer.legal_national_id.required' => 'شناسه ملی شرکت الزامی است.',
+            'customer.postal_code.digits' => 'کد پستی باید دقیقاً ۱۰ رقم باشد.',
+            'customer.first_name_en.regex' => 'نام انگلیسی فقط با حروف لاتین.',
+            'customer.last_name_en.regex' => 'نام خانوادگی انگلیسی فقط با حروف لاتین.',
+            'customer.father_name_en.regex' => 'نام پدر انگلیسی فقط با حروف لاتین.',
+            'customer.shop_name_en.regex' => 'نام انگلیسی فروشگاه فقط با حروف و عدد لاتین.',
+            'customer.website.url' => 'دامنه باید یک نشانی کامل با http یا https باشد.',
+            'customer.callback_url.url' => 'آدرس بازگشت باید یک نشانی کامل با http یا https باشد.',
+            'customer.server_ip.ip' => 'IP سرور باید یک IPv4 یا IPv6 معتبر باشد.',
+            'customer.tax.digits_between' => 'کد مالیاتی باید ۱۰ تا ۱۴ رقم باشد.',
+            'customer.phone.regex' => 'تلفن ثابت مانند 021-12345678.',
+            'customer.legal_national_id.digits' => 'شناسه ملی شرکت باید ۱۱ رقم باشد.',
+            'documents.national_id_front.max' => 'روی کارت ملی حداکثر ۲ مگابایت و از نوع jpg، png یا pdf باشد.',
+            'documents.national_id_back.max' => 'پشت کارت ملی حداکثر ۲ مگابایت و از نوع jpg، png یا pdf باشد.',
+            'documents.selfie.max' => 'سلفی حداکثر ۲ مگابایت و از نوع jpg، png یا pdf باشد.',
             'documents.national_id_front.required' => 'تصویر روی کارت ملی الزامی است.',
             'documents.national_id_back.required' => 'تصویر پشت کارت ملی الزامی است.',
-            'documents.birth_certificate.required' => 'تصویر شناسنامه الزامی است.',
             'documents.selfie.required' => 'سلفی احراز هویت الزامی است.',
-            'documents.gazette.required' => 'روزنامه رسمی / آگهی تأسیس برای شخص حقوقی الزامی است.',
-            'documents.license.required' => 'مجوز یا پروانه کسب برای شخص حقوقی الزامی است.',
+            'documents.gazette.required' => 'روزنامه رسمی برای شخص حقوقی الزامی است.',
+            'documents.official_letter.required' => 'معرفی‌نامه رسمی برای شخص حقوقی الزامی است.',
+            'documents.company_statute.required' => 'اساسنامه شرکت برای شخص حقوقی الزامی است.',
         ]);
 
         if (! empty($data['shared_link_id'])) {
@@ -235,13 +265,53 @@ class GatewayController extends Controller
             }
         }
 
+        $normalizeSheba = function (string $value): string {
+            $value = strtoupper(preg_replace('/[\s\-]/', '', $value) ?? '');
+
+            return str_starts_with($value, 'IR') ? $value : 'IR'.$value;
+        };
+        $mainSheba = $normalizeSheba($data['customer']['sheba']);
+        $backupSheba = $normalizeSheba($data['customer']['backup_sheba']);
+        if ($mainSheba === $backupSheba) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'customer.backup_sheba' => 'شبا پشتیبان باید با شبا اصلی فرق داشته باشد.',
+            ]);
+        }
+        $data['customer']['sheba'] = $mainSheba;
+        $data['customer']['name'] = trim($data['customer']['first_name'].' '.$data['customer']['last_name']);
+        $data['customer']['gender'] = in_array((string) $data['customer']['gender'], ['1', 'female'], true) ? 'female' : 'male';
+        $data['customer']['person_type'] = $isLegal ? 'legal' : 'individual';
+        $data['customer']['metadata'] = [
+            'vip' => [
+                'first_name' => $data['customer']['first_name'],
+                'last_name' => $data['customer']['last_name'],
+                'first_name_en' => $data['customer']['first_name_en'],
+                'last_name_en' => $data['customer']['last_name_en'],
+                'father_name_en' => $data['customer']['father_name_en'],
+                'state_id' => (int) $data['customer']['state_id'],
+                'city_id' => (int) $data['customer']['city_id'],
+                'address_title' => $data['customer']['address_title'] ?? 'محل کسب',
+                'phone' => $data['customer']['phone'] ?? null,
+                'category_id' => (int) $data['customer']['category_id'],
+                'shop_name_en' => $data['customer']['shop_name_en'],
+                'callback_url' => $data['customer']['callback_url'],
+                'server_ip' => $data['customer']['server_ip'],
+                'tax' => $data['customer']['tax'],
+                'backup_sheba' => $backupSheba,
+                'bank_code' => $data['customer']['bank_code'] ?? substr($mainSheba, 4, 3),
+                'company_name_en' => $data['customer']['company_name_en'] ?? null,
+                'register_date' => $data['customer']['register_date'] ?? null,
+            ],
+        ];
+
         $docs = [];
-        foreach (['national_id_front', 'national_id_back', 'birth_certificate', 'selfie', 'gazette', 'license'] as $key) {
+        foreach (['national_id_front', 'national_id_back', 'birth_certificate', 'selfie', 'gazette', 'license', 'official_letter', 'company_statute'] as $key) {
             if ($request->hasFile("documents.$key")) {
                 $docs[$key] = $request->file("documents.$key")->store('gateway-kyc', 'public');
             }
         }
         $data['customer']['documents'] = $docs;
+        $data['sync_finopal'] = true;
 
         // Non-superusers always own the registration themselves (solo / referral).
         if (! $user->isSuperuser() && empty($data['shared_link_id'])) {

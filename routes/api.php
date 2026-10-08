@@ -41,6 +41,9 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/representatives', [OrganizationController::class, 'representatives']);
         Route::get('/users/directory', [OrganizationController::class, 'directory']);
         Route::get('/geo/locations', [GeoController::class, 'locations']);
+        Route::get('/finopal-vip/reference', [\App\Http\Controllers\Api\FinopalVipReferenceController::class, 'reference']);
+        Route::get('/finopal-vip/cities', [\App\Http\Controllers\Api\FinopalVipReferenceController::class, 'cities']);
+        Route::post('/finopal-vip/postal-inquiry', [\App\Http\Controllers\Api\FinopalVipReferenceController::class, 'postalInquiry']);
 
         Route::get('/wallets', [WalletController::class, 'show']);
         Route::get('/wallets/aggregate', [WalletController::class, 'aggregate']);
