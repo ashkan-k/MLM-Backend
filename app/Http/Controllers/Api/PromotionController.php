@@ -28,7 +28,7 @@ class PromotionController extends Controller
         return response()->json($query->latest()->get());
     }
 
-    public function show(Request $request, PromotionRequest $promotion)
+    public function show(Request $request, PromotionRequest $promotion, PromotionService $service)
     {
         $actor = $request->user();
         if (! $actor->isSuperuser() && ! $actor->hasRole('senior_manager') && $promotion->user_id !== $actor->id) {
@@ -37,6 +37,7 @@ class PromotionController extends Controller
 
         $promotion->load(['user.roles', 'fromRole', 'targetRole', 'criteria', 'feedback.reviewer']);
         $user = $promotion->user;
+        $criteria = $this->presentCriteria($promotion, $service);
         $courses = Course::query()->with('levels')->where('is_active', true)->get();
         $progress = UserCourseProgress::query()->where('user_id', $user->id)->get();
 
@@ -50,7 +51,7 @@ class PromotionController extends Controller
                 'is_active' => $user->is_active,
                 'roles' => $user->roles->map(fn ($r) => ['name' => $r->name, 'slug' => $r->slug]),
             ],
-            'criteria' => $promotion->criteria,
+            'criteria' => $criteria,
             'training' => $courses->map(function (Course $course) use ($progress) {
                 $levels = $course->levels->map(function ($level) use ($progress) {
                     $row = $progress->firstWhere('course_level_id', $level->id);
@@ -125,5 +126,39 @@ class PromotionController extends Controller
         ]);
 
         return response()->json($service->decide($request->user(), $promotion, $data['decision'], $data['note'] ?? ''));
+    }
+
+    /**
+     * Pending dossiers show live numbers (header sales points and criteria stay in sync).
+     * Decided requests keep the snapshot taken at submission.
+     * Interview / team-satisfaction are yes-no, not a 0-of-1 score.
+     */
+    private function presentCriteria(PromotionRequest $promotion, PromotionService $service)
+    {
+        $targetSlug = $promotion->targetRole?->slug ?? 'sales_manager';
+        $live = $promotion->status === 'pending'
+            ? collect($service->evaluate($promotion->user, $targetSlug))->keyBy('code')
+            : collect();
+
+        return $promotion->criteria->map(function ($row) use ($live, $promotion) {
+            $code = (string) $row->criterion_code;
+            $boolean = in_array($code, ['senior_assessment', 'team_satisfaction'], true);
+
+            if ($live->has($code) && ! $boolean) {
+                $fresh = $live->get($code);
+                $row->actual_value = $fresh['actual'];
+                $row->required_value = $fresh['required'];
+                $row->passed = (bool) $fresh['passed'];
+            }
+
+            if ($code === 'senior_assessment') {
+                $row->passed = $promotion->status === 'approved';
+                $row->actual_value = $row->passed ? 1 : 0;
+            }
+
+            $row->setAttribute('kind', $boolean ? 'boolean' : 'score');
+
+            return $row;
+        })->values();
     }
 }
