@@ -78,15 +78,9 @@ class VipGatewayProvisioner
         }
 
         if (empty($finopal['address_id'])) {
-            $address = $this->client->postJson('users/addresses', [
+            $address = $this->client->postJson('users/addresses', array_merge([
                 'user_id' => (int) $finopal['user_id'],
-                'title' => 'محل کسب',
-                'postal_code' => $this->postal($sale),
-                'state_id' => $geo['state_id'],
-                'city_id' => $geo['city_id'],
-                'address' => $this->addressLine($sale),
-                'phone' => (string) $sale->customer->mobile,
-            ]);
+            ], $this->addressBody($sale, $geo, $this->vip($sale))));
             $data = $this->data($address);
             $finopal['address_id'] = $data['address_id'] ?? $data['id'] ?? null;
         }
@@ -160,14 +154,7 @@ class VipGatewayProvisioner
             'birth_date' => JalaliDate::format($customer->birth_date) ?: '1370/01/01',
             'gender' => $customer->gender === 'female' ? '1' : '0',
             'account_type' => 'real',
-            'address' => json_encode([
-                'title' => (string) ($vip['address_title'] ?? 'محل کسب'),
-                'postal_code' => $this->postal($sale),
-                'state_id' => $geo['state_id'],
-                'city_id' => $geo['city_id'],
-                'address' => $this->addressLine($sale),
-                'phone' => (string) ($vip['phone'] ?? $customer->mobile),
-            ], JSON_UNESCAPED_UNICODE),
+            'address' => json_encode($this->addressBody($sale, $geo, $vip), JSON_UNESCAPED_UNICODE),
         ], $files);
 
         return $this->data($response);
@@ -440,6 +427,40 @@ class VipGatewayProvisioner
         }
 
         return trim((string) $customer->province.' '.(string) $customer->city) ?: 'ایران';
+    }
+
+    private function addressBody(GatewaySale $sale, array $geo, array $vip): array
+    {
+        $address = [
+            'title' => (string) ($vip['address_title'] ?? 'محل کسب'),
+            'postal_code' => $this->postal($sale),
+            'state_id' => $geo['state_id'],
+            'city_id' => $geo['city_id'],
+            'address' => $this->addressLine($sale),
+        ];
+        $phone = $this->landline($vip['phone'] ?? null);
+        if ($phone !== null) {
+            $address['phone'] = $phone;
+        }
+
+        return $address;
+    }
+
+    private function landline(mixed $value): ?string
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+        if (preg_match('/^0\d{2,3}-\d{7,8}$/', $raw)) {
+            return $raw;
+        }
+        $digits = preg_replace('/\D/', '', $raw) ?? '';
+        if (preg_match('/^0\d{10}$/', $digits)) {
+            return substr($digits, 0, 3).'-'.substr($digits, 3);
+        }
+
+        return $raw;
     }
 
     private function postal(GatewaySale $sale): string

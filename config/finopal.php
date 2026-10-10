@@ -31,6 +31,15 @@ return [
         'secret' => env('FINOPAL_VIP_PARTNER_SECRET', ''),
         'timeout' => (int) env('FINOPAL_VIP_TIMEOUT', 60),
     ],
+
+    /*
+    | Postal-code lookup. Not part of the VIP partner collection.
+    | POST {url} with Authorization: Bearer {token} and {"postalCode":".........."}
+    */
+    'postal' => [
+        'url' => env('FINOPAL_POSTAL_URL', 'https://finopol.ir/api/service/fn-PostalCodePro'),
+        'token' => env('FINOPAL_POSTAL_TOKEN', ''),
+    ],
     /** Default password for users created via org-structure webhook. */
     'sync_default_password' => env('FINOPAL_SYNC_DEFAULT_PASSWORD', 'Password123!'),
 

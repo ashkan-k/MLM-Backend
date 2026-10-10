@@ -35,7 +35,7 @@ class FinopalVipReferenceController extends Controller
             'search' => ['nullable', 'string', 'max:80'],
         ]);
 
-        $key = 'finopal.vip.cities.v2.'.$data['state_id'].'.'.md5((string) ($data['search'] ?? ''));
+        $key = 'finopal.vip.cities.v3.'.$data['state_id'].'.'.md5((string) ($data['search'] ?? ''));
         $cities = Cache::remember($key, 3600, function () use ($data) {
             return $this->options($this->client->get('reference/cities', [
                 'state_id' => $data['state_id'],
@@ -48,7 +48,6 @@ class FinopalVipReferenceController extends Controller
 
     public function postalInquiry(Request $request)
     {
-        $this->ensureEnabled();
         $data = $request->validate([
             'postal_code' => ['required', 'digits:10'],
         ]);
@@ -59,31 +58,29 @@ class FinopalVipReferenceController extends Controller
             abort(422, $e->getMessage());
         }
 
-        $row = is_array($body['data'] ?? null) ? $body['data'] : $body;
-        $province = (string) ($row['province'] ?? $row['Province'] ?? $row['state'] ?? '');
-        $city = (string) ($row['city'] ?? $row['LocalityName'] ?? $row['town'] ?? '');
+        $row = is_array($body['data'] ?? null) ? $body['data'] : [];
+        $province = trim((string) ($row['province'] ?? ''));
+        $city = trim((string) ($row['city'] ?? ''));
+        $town = trim((string) ($row['town'] ?? ''));
         $address = trim((string) ($row['address'] ?? ''));
         if ($address === '') {
             $parts = array_filter([
                 $row['town'] ?? null,
-                isset($row['district']) ? 'منطقه '.$row['district'] : null,
+                isset($row['district']) && $row['district'] !== '' ? 'منطقه '.$row['district'] : null,
                 $row['street'] ?? null,
                 $row['street2'] ?? null,
-                isset($row['number']) ? 'پلاک '.$row['number'] : null,
-                isset($row['floor']) ? 'طبقه '.$row['floor'] : null,
+                isset($row['number']) && $row['number'] !== '' ? 'پلاک '.$row['number'] : null,
+                isset($row['floor']) && $row['floor'] !== '' ? 'طبقه '.$row['floor'] : null,
+                $row['sideFloor'] ?? null,
                 $row['buildingName'] ?? null,
             ], fn ($part) => filled($part));
             $address = implode('، ', array_map('strval', $parts));
         }
 
-        $stateId = $this->intOf($row['state_id'] ?? $row['province_id'] ?? null);
-        $cityId = $this->intOf($row['city_id'] ?? null);
-        if (! $stateId || ! $cityId) {
-            [$stateId, $cityId, $province, $city] = $this->matchGeo($province, $city, $stateId, $cityId);
-        }
+        [$stateId, $cityId, $province, $city] = $this->matchGeo($province, $city, $town);
 
-        if ($address === '' || ! $stateId || ! $cityId) {
-            abort(422, 'استعلام کد پستی آدرس کامل برنگرداند. استان و شهر را دستی انتخاب کنید.');
+        if ($address === '') {
+            abort(422, 'استعلام این کد پستی نشانی برنگرداند.');
         }
 
         return response()->json([
@@ -137,6 +134,7 @@ class FinopalVipReferenceController extends Controller
                     break;
                 }
             }
+            $label = $this->plain($label);
             $out[] = ['id' => (int) $id, 'title' => $label !== '' ? $label : '#'.$id];
         }
 
@@ -207,49 +205,81 @@ class FinopalVipReferenceController extends Controller
     }
 
     /** @return array{0: ?int, 1: ?int, 2: string, 3: string} */
-    private function matchGeo(string $province, string $city, ?int $stateId, ?int $cityId): array
+    private function matchGeo(string $province, string $city, string $town = ''): array
     {
+        $stateId = null;
+        $cityId = null;
+        if ($province === '') {
+            return [null, null, $province, $city];
+        }
+
         $cached = Cache::get('finopal.vip.reference');
         $states = is_array($cached['states'] ?? null)
             ? $cached['states']
-            : $this->options($this->client->get('reference/states'));
+            : ($this->client->enabled() ? $this->options($this->client->get('reference/states')) : []);
 
-        if (! $stateId) {
-            foreach ($states as $state) {
-                if ($this->same($state['title'], $province)) {
-                    $stateId = $state['id'];
-                    $province = $state['title'];
-                    break;
-                }
-            }
+        $state = $this->bestMatch($states, $province);
+        if ($state) {
+            $stateId = (int) $state['id'];
+            $province = (string) $state['title'];
         }
-        if ($stateId && ! $cityId) {
-            $cities = $this->options($this->client->get('reference/cities', ['state_id' => $stateId, 'search' => '']));
-            foreach ($cities as $row) {
-                if ($this->same($row['title'], $city)) {
-                    $cityId = $row['id'];
-                    $city = $row['title'];
+
+        if ($stateId && $this->client->enabled()) {
+            $cities = $this->options($this->client->get('reference/cities', [
+                'state_id' => $stateId,
+                'search' => '',
+            ]));
+            foreach (array_filter([$city, $town]) as $needle) {
+                $match = $this->bestMatch($cities, $needle);
+                if ($match) {
+                    $cityId = (int) $match['id'];
+                    $city = (string) $match['title'];
                     break;
                 }
-            }
-            if (! $cityId && isset($cities[0])) {
-                $cityId = $cities[0]['id'];
-                $city = $cities[0]['title'];
             }
         }
 
         return [$stateId, $cityId, $province, $city];
     }
 
-    private function same(string $left, string $right): bool
+    private function bestMatch(array $rows, string $needle): ?array
     {
-        $norm = fn (string $value) => mb_strtolower(str_replace(['ي', 'ك', 'ة', '‌', ' '], ['ی', 'ک', 'ه', '', ''], trim($value)));
+        $fuzzy = null;
+        foreach ($rows as $row) {
+            $title = (string) ($row['title'] ?? '');
+            if ($this->norm($title) === $this->norm($needle)) {
+                return $row;
+            }
+            if ($fuzzy === null && $this->same($title, $needle)) {
+                $fuzzy = $row;
+            }
+        }
 
-        return $norm($left) !== '' && ($norm($left) === $norm($right) || str_contains($norm($left), $norm($right)) || str_contains($norm($right), $norm($left)));
+        return $fuzzy;
     }
 
-    private function intOf(mixed $value): ?int
+    private function plain(string $value): string
     {
-        return is_numeric($value) ? (int) $value : null;
+        if (class_exists(\Normalizer::class)) {
+            $normalized = \Normalizer::normalize($value, \Normalizer::FORM_KC);
+            if (is_string($normalized) && $normalized !== '') {
+                $value = $normalized;
+            }
+        }
+
+        return trim($value);
+    }
+
+    private function norm(string $value): string
+    {
+        return mb_strtolower(str_replace(['ي', 'ك', 'ة', '‌', ' '], ['ی', 'ک', 'ه', '', ''], $this->plain($value)));
+    }
+
+    private function same(string $left, string $right): bool
+    {
+        $left = $this->norm($left);
+        $right = $this->norm($right);
+
+        return $left !== '' && ($left === $right || str_contains($left, $right) || str_contains($right, $left));
     }
 }
