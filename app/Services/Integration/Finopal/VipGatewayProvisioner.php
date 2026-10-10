@@ -474,7 +474,9 @@ class VipGatewayProvisioner
         if ($website === '') {
             return 'https://merchant.finopal.ir/'.$nationalId;
         }
-        if (! str_starts_with($website, 'http://') && ! str_starts_with($website, 'https://')) {
+        if (str_starts_with(strtolower($website), 'http://')) {
+            $website = 'https://'.substr($website, 7);
+        } elseif (! str_starts_with(strtolower($website), 'https://')) {
             $website = 'https://'.$website;
         }
 

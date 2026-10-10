@@ -204,8 +204,8 @@ class GatewayController extends Controller
             'customer.shop_name_en' => ['required', 'string', 'regex:/^[A-Za-z0-9][A-Za-z0-9 \\-]{1,60}$/'],
             'customer.shop_category' => ['nullable', 'string'],
             'customer.category_id' => ['required', 'integer'],
-            'customer.website' => ['required', 'url', 'max:200'],
-            'customer.callback_url' => ['required', 'url', 'max:200'],
+            'customer.website' => ['required', 'url', 'regex:/^https:\/\//i', 'max:200'],
+            'customer.callback_url' => ['required', 'url', 'regex:/^https:\/\//i', 'max:200'],
             'customer.server_ip' => ['required', 'ip'],
             'customer.tax' => ['required', 'digits_between:10,14'],
             'customer.company_name' => [$isLegal ? 'required' : 'nullable', 'string'],
@@ -235,8 +235,10 @@ class GatewayController extends Controller
             'customer.last_name_en.regex' => 'نام خانوادگی انگلیسی فقط با حروف لاتین.',
             'customer.father_name_en.regex' => 'نام پدر انگلیسی فقط با حروف لاتین.',
             'customer.shop_name_en.regex' => 'نام انگلیسی فروشگاه فقط با حروف و عدد لاتین.',
-            'customer.website.url' => 'دامنه باید یک نشانی کامل با http یا https باشد.',
-            'customer.callback_url.url' => 'آدرس بازگشت باید یک نشانی کامل با http یا https باشد.',
+            'customer.website.url' => 'دامنه باید یک نشانی کامل با https باشد.',
+            'customer.website.regex' => 'دامنه باید با https شروع شود.',
+            'customer.callback_url.url' => 'آدرس بازگشت باید یک نشانی کامل با https باشد.',
+            'customer.callback_url.regex' => 'آدرس بازگشت باید با https شروع شود.',
             'customer.server_ip.ip' => 'IP سرور باید یک IPv4 یا IPv6 معتبر باشد.',
             'customer.tax.digits_between' => 'کد مالیاتی باید ۱۰ تا ۱۴ رقم باشد.',
             'customer.phone.required' => 'تلفن ثابت الزامی است.',
@@ -282,6 +284,9 @@ class GatewayController extends Controller
         $data['customer']['phone'] = preg_match('/^0\d{2}-\d{8}$/', (string) $data['customer']['phone'])
             ? $data['customer']['phone']
             : substr($phoneDigits, 0, 3).'-'.substr($phoneDigits, 3);
+        foreach (['website', 'callback_url'] as $urlKey) {
+            $data['customer'][$urlKey] = preg_replace('/^https:\/\//i', 'https://', (string) $data['customer'][$urlKey]);
+        }
         $data['customer']['sheba'] = $mainSheba;
         $data['customer']['name'] = trim($data['customer']['first_name'].' '.$data['customer']['last_name']);
         $data['customer']['gender'] = in_array((string) $data['customer']['gender'], ['1', 'female'], true) ? 'female' : 'male';
