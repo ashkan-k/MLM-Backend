@@ -439,9 +439,10 @@ class VipGatewayProvisioner
             'address' => $this->addressLine($sale),
         ];
         $phone = $this->landline($vip['phone'] ?? null);
-        if ($phone !== null) {
-            $address['phone'] = $phone;
+        if ($phone === null) {
+            abort(422, 'تلفن ثابت الزامی است و باید مانند 021-12345678 باشد.');
         }
+        $address['phone'] = $phone;
 
         return $address;
     }
@@ -449,10 +450,7 @@ class VipGatewayProvisioner
     private function landline(mixed $value): ?string
     {
         $raw = trim((string) $value);
-        if ($raw === '') {
-            return null;
-        }
-        if (preg_match('/^0\d{2,3}-\d{7,8}$/', $raw)) {
+        if (preg_match('/^0\d{2}-\d{8}$/', $raw)) {
             return $raw;
         }
         $digits = preg_replace('/\D/', '', $raw) ?? '';
@@ -460,7 +458,7 @@ class VipGatewayProvisioner
             return substr($digits, 0, 3).'-'.substr($digits, 3);
         }
 
-        return $raw;
+        return null;
     }
 
     private function postal(GatewaySale $sale): string

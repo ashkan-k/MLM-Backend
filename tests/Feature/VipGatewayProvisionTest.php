@@ -42,7 +42,7 @@ class VipGatewayProvisionTest extends TestCase
             } elseif (str_contains($url, '/reference/gateway-categories')) {
                 $body['data'] = [['id' => 4, 'title' => 'فروشگاه']];
             } elseif (str_contains($url, '/users/register')) {
-                $this->assertStringNotContainsString('"phone"', $request->body());
+                $this->assertStringContainsString('"phone":"021-12345678"', $request->body());
                 $body['data'] = ['user_id' => 55, 'tracking_code' => 'USR-1', 'address_id' => 77];
             } elseif (str_contains($url, '/contracts/sign')) {
                 $body['data'] = ['contract_id' => 90];
@@ -88,6 +88,7 @@ class VipGatewayProvisionTest extends TestCase
                 'city_id' => 301,
                 'address' => 'خیابان نمونه پلاک ۱۲',
                 'postal_code' => '1234567890',
+                'phone' => '02112345678',
                 'shop_name' => 'فروشگاه اتصال',
                 'shop_name_en' => 'ConnectShop',
                 'category_id' => 4,
@@ -166,6 +167,7 @@ class VipGatewayProvisionTest extends TestCase
                 'city_id' => 301,
                 'address' => 'خیابان نمونه پلاک ۱۲',
                 'postal_code' => '1234567890',
+                'phone' => '02112345678',
                 'shop_name' => 'فروشگاه اتصال',
                 'shop_name_en' => 'ConnectShop',
                 'category_id' => 4,

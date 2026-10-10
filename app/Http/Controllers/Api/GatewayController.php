@@ -194,7 +194,7 @@ class GatewayController extends Controller
             'customer.city_id' => ['required', 'integer'],
             'customer.address' => ['required', 'string', 'min:5'],
             'customer.address_title' => ['nullable', 'string', 'max:40'],
-            'customer.phone' => ['nullable', 'regex:/^0\\d{2,3}-?\\d{7,8}$/'],
+            'customer.phone' => ['required', 'regex:/^0\\d{2}-?\\d{8}$/'],
             'customer.postal_code' => ['required', 'digits:10'],
             'customer.bank_name' => ['nullable', 'string', 'max:80'],
             'customer.bank_code' => ['nullable', 'digits:3'],
@@ -239,7 +239,8 @@ class GatewayController extends Controller
             'customer.callback_url.url' => 'آدرس بازگشت باید یک نشانی کامل با http یا https باشد.',
             'customer.server_ip.ip' => 'IP سرور باید یک IPv4 یا IPv6 معتبر باشد.',
             'customer.tax.digits_between' => 'کد مالیاتی باید ۱۰ تا ۱۴ رقم باشد.',
-            'customer.phone.regex' => 'تلفن ثابت مانند 021-12345678.',
+            'customer.phone.required' => 'تلفن ثابت الزامی است.',
+            'customer.phone.regex' => 'تلفن ثابت باید مانند 021-12345678 باشد.',
             'customer.legal_national_id.digits' => 'شناسه ملی شرکت باید ۱۱ رقم باشد.',
             'documents.national_id_front.max' => 'روی کارت ملی حداکثر ۲ مگابایت و از نوع jpg، png یا pdf باشد.',
             'documents.national_id_back.max' => 'پشت کارت ملی حداکثر ۲ مگابایت و از نوع jpg، png یا pdf باشد.',
@@ -277,6 +278,10 @@ class GatewayController extends Controller
                 'customer.backup_sheba' => 'شبا پشتیبان باید با شبا اصلی فرق داشته باشد.',
             ]);
         }
+        $phoneDigits = preg_replace('/\D/', '', (string) $data['customer']['phone']) ?? '';
+        $data['customer']['phone'] = preg_match('/^0\d{2}-\d{8}$/', (string) $data['customer']['phone'])
+            ? $data['customer']['phone']
+            : substr($phoneDigits, 0, 3).'-'.substr($phoneDigits, 3);
         $data['customer']['sheba'] = $mainSheba;
         $data['customer']['name'] = trim($data['customer']['first_name'].' '.$data['customer']['last_name']);
         $data['customer']['gender'] = in_array((string) $data['customer']['gender'], ['1', 'female'], true) ? 'female' : 'male';
