@@ -9,8 +9,10 @@ use App\Models\GatewaySale;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Models\UserBonusDefault;
 use App\Models\UserPointAdjustment;
 use App\Services\Organization\OrganizationTreeService;
+use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
 /**
@@ -113,19 +115,64 @@ class QualificationService
      *
      * @return int number of newly marked gateways
      */
+    public function hasBonusDefault(int $userId, int $roleId): bool
+    {
+        return UserBonusDefault::query()
+            ->where('user_id', $userId)
+            ->where('role_id', $roleId)
+            ->exists();
+    }
+
+    /**
+     * Every successful gateway that counts for this user/role, regardless of month.
+     *
+     * @return list<int>
+     */
+    public function allCountedGatewayIds(string $ruleCode, User $user, int $roleId): array
+    {
+        $from = Carbon::create(2000, 1, 1)->startOfDay();
+        $to = now()->copy()->addYear()->endOfDay();
+
+        return match ($ruleCode) {
+            'representative' => $this->representativeGatewayIds($user, $from, $to),
+            'sales_manager', 'development_manager' => $this->managerGatewayIds($user, $roleId, $ruleCode, $from, $to),
+            default => [],
+        };
+    }
+
     public function syncPermanentEligibilities(string $ruleCode, User $user, int $roleId, CarbonInterface $at): int
     {
+        $monthKey = $at->copy()->startOfMonth()->format('Y-m');
+
+        if ($this->hasBonusDefault((int) $user->id, $roleId)) {
+            return $this->lockSales(
+                (int) $user->id,
+                $roleId,
+                $this->allCountedGatewayIds($ruleCode, $user, $roleId),
+                $monthKey,
+            );
+        }
+
         if (! $this->monthThresholdMet($ruleCode, $user, $roleId, $at)) {
             return 0;
         }
 
-        $monthKey = $at->copy()->startOfMonth()->format('Y-m');
-        $ids = $this->monthGatewayIds($ruleCode, $user, $roleId, $at);
+        return $this->lockSales(
+            (int) $user->id,
+            $roleId,
+            $this->monthGatewayIds($ruleCode, $user, $roleId, $at),
+            $monthKey,
+        );
+    }
+
+    /** @param list<int> $saleIds */
+    private function lockSales(int $userId, int $roleId, array $saleIds, string $monthKey): int
+    {
         $created = 0;
-        foreach ($ids as $saleId) {
+        foreach ($saleIds as $saleId) {
             $row = GatewayBonusEligibility::query()->firstOrCreate(
                 [
-                    'user_id' => $user->id,
+                    'user_id' => $userId,
                     'role_id' => $roleId,
                     'gateway_sale_id' => $saleId,
                 ],
@@ -195,9 +242,14 @@ class QualificationService
                     ? "؛ هنوز {$fmt($remaining)} امتیاز باقی مانده است."
                     : ' — حد نصاب این ماه تکمیل شده است.'),
             "محدوده شمارش: {$scope}. با شروع ماه بعد، شمارش امتیاز ثبت درگاه از صفر آغاز می‌شود.",
-            'اگر تا پایان ماه به حد نصاب نرسید، درگاه‌های همان ماه برای پاداش دائمی قفل نمی‌شوند.',
-            'پس از رسیدن به حد نصاب، همان درگاه‌های ثبت‌شدهٔ این ماه برای همیشه واجد شرایط پاداش می‌مانند و هر تراکنش بعدی روی آن‌ها پاداش این نقش را می‌سازد.',
         ];
+
+        if ($this->hasBonusDefault((int) $user->id, $roleId)) {
+            $guide[] = 'پاداش این نقش برای شما پیش‌فرض فعال است: همه درگاه‌های قبلی و هر درگاه بعدی، بدون حد نصاب امتیاز، مشمول پاداش می‌شوند. نوار امتیاز این ماه فقط نمایشی است و شرط دریافت پاداش نیست.';
+        } else {
+            $guide[] = 'اگر تا پایان ماه به حد نصاب نرسید، درگاه‌های همان ماه برای پاداش دائمی قفل نمی‌شوند.';
+            $guide[] = 'پس از رسیدن به حد نصاب، همان درگاه‌های ثبت‌شدهٔ این ماه برای همیشه واجد شرایط پاداش می‌مانند و هر تراکنش بعدی روی آن‌ها پاداش این نقش را می‌سازد.';
+        }
 
         return [
             'actual' => $actual,
@@ -209,6 +261,7 @@ class QualificationService
             'gateway_count' => $gateways,
             'gateway_points' => $gatewayPoints,
             'manual_points' => $manualPoints,
+            'bonus_default' => $this->hasBonusDefault((int) $user->id, $roleId),
             'guide' => $guide,
         ];
     }

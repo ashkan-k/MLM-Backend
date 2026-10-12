@@ -29,6 +29,11 @@ class ReferralController extends Controller
 
         return response()->json(
             ReferralCode::query()->where('user_id', $user->id)->where('is_active', true)->get()
+                ->map(fn (ReferralCode $code) => [
+                    'id' => $code->id,
+                    'code' => $code->code,
+                    'finopal_signup_url' => \App\Services\Integration\Finopal\FinopalSignupWebhookService::signupUrl($code->code),
+                ])
         );
     }
 

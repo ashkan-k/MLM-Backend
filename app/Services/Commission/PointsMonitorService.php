@@ -6,8 +6,10 @@ use App\Models\GatewayBonusEligibility;
 use App\Models\GatewayManager;
 use App\Models\GatewayRepresentative;
 use App\Models\GatewaySale;
+use App\Models\Commission;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\UserBonusDefault;
 use App\Models\UserPointAdjustment;
 use App\Services\Audit\AuditService;
 use App\Services\Organization\OrganizationTreeService;
@@ -24,6 +26,7 @@ class PointsMonitorService
         private readonly QualificationService $qualification,
         private readonly OrganizationTreeService $tree,
         private readonly AuditService $audit,
+        private readonly MonthlyBonusService $bonuses,
     ) {}
 
     public function assertMonitorAccess(User $viewer): void
@@ -54,8 +57,11 @@ class PointsMonitorService
             : [];
 
         $roles = Role::query()->whereIn('slug', self::POINT_ROLES)->get()->keyBy('slug');
+        $bonusDefaults = UserBonusDefault::query()
+            ->get(['user_id', 'role_id'])
+            ->mapWithKeys(fn (UserBonusDefault $row) => [$row->user_id.':'.$row->role_id => true]);
 
-        $annotate = function (array $nodes) use (&$annotate, $at, $ppg): array {
+        $annotate = function (array $nodes) use (&$annotate, $at, $ppg, $bonusDefaults): array {
             $out = [];
             foreach ($nodes as $node) {
                 $user = $node['user'] ?? null;
@@ -91,6 +97,7 @@ class PointsMonitorService
                             'progress_pct' => $required > 0 ? min(100, (int) round(($actual / $required) * 100)) : 0,
                             'threshold_met' => $qualified,
                             'permanent_eligible_count' => $eligibleCount,
+                            'bonus_default' => $bonusDefaults->has($userModel->id.':'.$roleId),
                         ];
                     }
                 }
@@ -256,7 +263,145 @@ class PointsMonitorService
             'adjustments' => $adjustments,
             'permanent_eligibilities' => $eligibilities,
             'can_adjust' => $viewer->isSuperuser(),
+            'bonus_default' => $this->qualification->hasBonusDefault($target->id, (int) $role->id),
+            'can_grant_bonus_default' => true,
         ];
+    }
+
+    /**
+     * Users the viewer may grant a default bonus to, with one flag per bonus role.
+     *
+     * @return list<array{id: int, name: string, mobile: ?string, roles: list<array{slug: string, name: string, bonus_default: bool}>}>
+     */
+    public function listBonusDefaults(User $viewer, ?string $search = null, ?int $userId = null): array
+    {
+        $this->assertMonitorAccess($viewer);
+
+        $query = User::query()
+            ->where('is_active', true)
+            ->whereHas('roles', fn ($q) => $q->whereIn('slug', self::POINT_ROLES));
+
+        if (! $viewer->isSuperuser()) {
+            $ids = $this->tree->descendantUserIds($viewer)->push($viewer->id)->all();
+            $query->whereIn('id', $ids);
+        }
+        if ($userId) {
+            $query->where('id', $userId);
+        }
+        if ($search && trim($search) !== '') {
+            $term = '%'.trim($search).'%';
+            $query->where(function ($q) use ($term) {
+                $q->where('name', 'like', $term)->orWhere('mobile', 'like', $term);
+            });
+        }
+
+        $users = $query
+            ->with(['roles' => fn ($q) => $q->whereIn('slug', self::POINT_ROLES)])
+            ->orderBy('name')
+            ->limit($userId ? 1 : 20)
+            ->get();
+
+        $defaults = UserBonusDefault::query()
+            ->whereIn('user_id', $users->pluck('id'))
+            ->get(['user_id', 'role_id'])
+            ->mapWithKeys(fn (UserBonusDefault $row) => [$row->user_id.':'.$row->role_id => true]);
+
+        return $users->map(function (User $user) use ($defaults) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'mobile' => $user->mobile,
+                'roles' => $user->roles->map(fn (Role $role) => [
+                    'slug' => $role->slug,
+                    'name' => $role->name,
+                    'bonus_default' => $defaults->has($user->id.':'.$role->id),
+                ])->values()->all(),
+            ];
+        })->all();
+    }
+
+    /**
+     * Turn the role's monthly bonus on by default for every past and future counted gateway.
+     *
+     * @return array{enabled: bool, locked_gateways: int}
+     */
+    public function setBonusDefault(User $actor, int $userId, string $roleSlug, bool $enabled): array
+    {
+        $this->assertMonitorAccess($actor);
+
+        if (! in_array($roleSlug, self::POINT_ROLES, true)) {
+            throw ValidationException::withMessages(['role_slug' => 'نقش نامعتبر است.']);
+        }
+
+        $target = User::query()->findOrFail($userId);
+        if (! $actor->isSuperuser()) {
+            $allowed = $this->tree->descendantUserIds($actor)->push($actor->id)->all();
+            if (! in_array($target->id, $allowed, true)) {
+                abort(403, 'این کاربر در زیرمجموعه شما نیست.');
+            }
+        }
+
+        if (! $target->hasRole($roleSlug)) {
+            throw ValidationException::withMessages([
+                'role_slug' => 'این کاربر نقش انتخاب‌شده را ندارد.',
+            ]);
+        }
+
+        $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
+
+        return DB::transaction(function () use ($actor, $target, $role, $roleSlug, $enabled) {
+            if ($enabled) {
+                UserBonusDefault::query()->firstOrCreate(
+                    [
+                        'user_id' => $target->id,
+                        'role_id' => $role->id,
+                    ],
+                    ['granted_by' => $actor->id]
+                );
+                $locked = $this->qualification->syncPermanentEligibilities($roleSlug, $target, (int) $role->id, now());
+                foreach ($this->bonusMonths($target->id, (int) $role->id) as $at) {
+                    $this->bonuses->refresh($target, $roleSlug, $at);
+                    $this->bonuses->settleUnpaidToSenior($at);
+                }
+            } else {
+                UserBonusDefault::query()
+                    ->where('user_id', $target->id)
+                    ->where('role_id', $role->id)
+                    ->delete();
+                $locked = 0;
+            }
+
+            $this->audit->record($actor, $enabled ? 'bonus.default_on' : 'bonus.default_off', $target, null, [
+                'role_slug' => $roleSlug,
+                'locked_gateways' => $locked,
+            ]);
+
+            return [
+                'enabled' => $enabled,
+                'locked_gateways' => $locked,
+            ];
+        });
+    }
+
+    /** @return list<CarbonInterface> */
+    private function bonusMonths(int $userId, int $roleId): array
+    {
+        $keys = Commission::query()
+            ->where('user_id', $userId)
+            ->where('role_id', $roleId)
+            ->where('idempotency_key', 'not like', 'monthly-bonus:%')
+            ->where('idempotency_key', 'not like', 'monthly-bonus-residual:%')
+            ->pluck('created_at')
+            ->map(fn ($at) => Carbon::parse($at)->format('Y-m'))
+            ->push(now()->format('Y-m'))
+            ->unique()
+            ->values();
+
+        return $keys->map(function (string $key) {
+            $start = Carbon::createFromFormat('Y-m', $key)->startOfMonth();
+
+            return $start->isSameMonth(now()) ? now() : $start->copy()->endOfMonth();
+        })->all();
     }
 
     public function adjust(
@@ -363,6 +508,9 @@ class PointsMonitorService
         }
 
         $users = $query->with(['roles' => fn ($q) => $q->whereIn('slug', self::POINT_ROLES)])->orderBy('id')->get();
+        $bonusDefaults = UserBonusDefault::query()
+            ->get(['user_id', 'role_id'])
+            ->mapWithKeys(fn (UserBonusDefault $row) => [$row->user_id.':'.$row->role_id => true]);
         $rows = [];
         foreach ($users as $user) {
             foreach ($user->roles as $role) {
@@ -388,6 +536,7 @@ class PointsMonitorService
                     'required' => $required,
                     'progress_pct' => $required > 0 ? min(100, (int) round(($actual / $required) * 100)) : 0,
                     'threshold_met' => $required > 0 && $actual >= $required,
+                    'bonus_default' => $bonusDefaults->has($user->id.':'.$role->id),
                 ];
             }
         }

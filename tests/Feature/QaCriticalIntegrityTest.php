@@ -125,7 +125,7 @@ class QaCriticalIntegrityTest extends TestCase
         $this->assertSame(
             1,
             WalletTransaction::query()
-                ->where('idempotency_key', 'like', 'wallet-tx:%:sale:'.$sale->id.':%')
+                ->where('idempotency_key', 'like', 'wallet-tx:%:gateway:'.$sale->id.':%')
                 ->where('type', 'commission_credit')
                 ->whereHas('wallet', fn ($q) => $q->where('user_id', $rep->id))
                 ->count()

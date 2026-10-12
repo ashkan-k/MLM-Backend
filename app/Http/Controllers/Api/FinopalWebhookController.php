@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\Integration\Finopal\FinopalOrgSyncService;
+use App\Services\Integration\Finopal\FinopalSignupWebhookService;
 use App\Services\Integration\Finopal\FinopalTransactionService;
 use Illuminate\Http\Request;
 use RuntimeException;
@@ -165,6 +166,108 @@ class FinopalWebhookController extends Controller
             'errors' => $result['errors'],
             'structure' => $result['structure'],
         ], $errorCount > 0 && $createdCount === 0 && $skippedCount === 0 ? 422 : 200);
+    }
+
+    /**
+     * Step 1. A person signed up on Finopal with a referrer link.
+     * The gateway may be completed days later and arrives on gateway().
+     */
+    public function signup(Request $request, FinopalSignupWebhookService $signups)
+    {
+        if ($response = $this->authorizeWebhook($request)) {
+            return $response;
+        }
+
+        $data = $request->validate([
+            'event' => ['nullable', 'string', 'max:80'],
+            'idempotency_key' => ['nullable', 'string', 'max:190'],
+            'referral_code' => ['required', 'string', 'max:255'],
+            'user' => ['required', 'array'],
+            'user.name' => ['required', 'string', 'max:255'],
+            'user.mobile' => ['required', 'string', 'max:20'],
+            'user.national_id' => ['required', 'string', 'max:20'],
+            'user.email' => ['nullable', 'email', 'max:190'],
+            'user.birth_date' => ['nullable', 'string', 'max:20'],
+            'user.sheba' => ['nullable', 'string', 'max:34'],
+            'user.finopal_user_id' => ['nullable', 'string', 'max:64'],
+        ], [
+            'referral_code.required' => 'کد معرف (ref) الزامی است.',
+            'user.required' => 'اطلاعات کاربر الزامی است.',
+            'user.name.required' => 'نام کاربر الزامی است.',
+            'user.mobile.required' => 'موبایل کاربر الزامی است.',
+            'user.national_id.required' => 'کد ملی کاربر الزامی است.',
+        ], [
+            'referral_code' => 'کد معرف',
+            'user.name' => 'نام',
+            'user.mobile' => 'موبایل',
+            'user.national_id' => 'کد ملی',
+            'user.email' => 'ایمیل',
+        ]);
+
+        $result = $signups->registerUser($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['user_created']
+                ? 'ثبت کاربر از فینوپال در سازمان فروش انجام شد.'
+                : 'این کاربر از قبل در سازمان فروش بود و دوباره ساخته نشد.',
+            ...$result,
+        ]);
+    }
+
+    /**
+     * Step 2. The same person finished gateway registration on Finopal.
+     */
+    public function gateway(Request $request, FinopalSignupWebhookService $signups)
+    {
+        if ($response = $this->authorizeWebhook($request)) {
+            return $response;
+        }
+
+        $data = $request->validate([
+            'event' => ['nullable', 'string', 'max:80'],
+            'idempotency_key' => ['nullable', 'string', 'max:190'],
+            'user' => ['required', 'array'],
+            'user.name' => ['nullable', 'string', 'max:255'],
+            'user.mobile' => ['required', 'string', 'max:20'],
+            'user.national_id' => ['required', 'string', 'max:20'],
+            'user.email' => ['nullable', 'email', 'max:190'],
+            'user.birth_date' => ['nullable', 'string', 'max:20'],
+            'user.sheba' => ['nullable', 'string', 'max:34'],
+            'user.finopal_user_id' => ['nullable', 'string', 'max:64'],
+            'gateway' => ['required', 'array'],
+            'gateway.external_id' => ['nullable', 'string', 'max:190'],
+            'gateway.merchant_code' => ['nullable', 'string', 'max:64'],
+            'gateway.name' => ['nullable', 'string', 'max:190'],
+            'gateway.amount' => ['nullable', 'numeric', 'min:0'],
+            'gateway.website' => ['nullable', 'string', 'max:190'],
+            'gateway.callback_url' => ['nullable', 'string', 'max:190'],
+            'gateway.person_type' => ['nullable', 'string', 'max:32'],
+            'gateway.sold_at' => ['nullable', 'date'],
+        ], [
+            'user.required' => 'اطلاعات کاربر الزامی است.',
+            'user.mobile.required' => 'موبایل کاربر الزامی است.',
+            'user.national_id.required' => 'کد ملی کاربر الزامی است.',
+            'gateway.required' => 'اطلاعات درگاه الزامی است.',
+        ], [
+            'user.name' => 'نام',
+            'user.mobile' => 'موبایل',
+            'user.national_id' => 'کد ملی',
+            'gateway.external_id' => 'شناسه درگاه',
+            'gateway.merchant_code' => 'کد مرچنت',
+            'gateway.name' => 'نام درگاه',
+            'gateway.amount' => 'مبلغ',
+        ]);
+
+        $result = $signups->registerGateway($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['gateway_created']
+                ? 'ثبت درگاه از فینوپال در سازمان فروش انجام شد.'
+                : 'این درگاه از قبل ثبت شده بود و دوباره ساخته نشد.',
+            ...$result,
+        ]);
     }
 
     private function authorizeWebhook(Request $request)

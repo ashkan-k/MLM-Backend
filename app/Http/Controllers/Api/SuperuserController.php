@@ -110,6 +110,7 @@ class SuperuserController extends Controller
                 $q->where('name', 'like', "%{$search}%")
                     ->orWhere('mobile', 'like', "%{$search}%")
                     ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('national_id', 'like', "%{$search}%")
                     ->orWhere('id', $search);
             });
         }

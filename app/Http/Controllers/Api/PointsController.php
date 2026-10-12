@@ -92,4 +92,55 @@ class PointsController extends Controller
             ],
         ]);
     }
+
+    public function bonusDefaults(Request $request, PointsMonitorService $points)
+    {
+        $data = $request->validate([
+            'search' => ['nullable', 'string', 'max:80'],
+            'user_id' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
+
+        return response()->json([
+            'users' => $points->listBonusDefaults(
+                $request->user(),
+                $data['search'] ?? null,
+                isset($data['user_id']) ? (int) $data['user_id'] : null,
+            ),
+        ]);
+    }
+
+    public function bonusDefault(Request $request, PointsMonitorService $points)
+    {
+        $data = $request->validate([
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+            'role_slug' => ['required', 'string', 'in:representative,sales_manager,development_manager'],
+            'enabled' => ['required', 'boolean'],
+        ], [
+            'user_id.required' => 'کاربر مشخص نشده است.',
+            'role_slug.required' => 'نقش کاربر مشخص نشده است.',
+            'role_slug.in' => 'نقش انتخاب‌شده برای پاداش پیش‌فرض معتبر نیست.',
+            'enabled.required' => 'وضعیت پاداش پیش‌فرض مشخص نشده است.',
+        ], [
+            'user_id' => 'کاربر',
+            'role_slug' => 'نقش',
+            'enabled' => 'پاداش پیش‌فرض',
+        ]);
+
+        $result = $points->setBonusDefault(
+            $request->user(),
+            (int) $data['user_id'],
+            $data['role_slug'],
+            (bool) $data['enabled'],
+        );
+
+        $message = $result['enabled']
+            ? 'پاداش پیش‌فرض فعال شد. درگاه‌های قبلی این نقش مشمول پاداش شدند و هر درگاه بعدی هم بدون حد نصاب امتیاز پاداش می‌گیرد.'
+            : 'پاداش پیش‌فرض خاموش شد. درگاه‌هایی که قبلاً واجد شرایط شده‌اند همان‌طور می‌مانند؛ درگاه‌های جدید فقط با رسیدن به حد نصاب قفل می‌شوند.';
+
+        return response()->json([
+            'message' => $message,
+            'bonus_default' => $result['enabled'],
+            'locked_gateways' => $result['locked_gateways'],
+        ]);
+    }
 }

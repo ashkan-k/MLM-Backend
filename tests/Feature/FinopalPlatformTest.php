@@ -122,7 +122,7 @@ class FinopalPlatformTest extends TestCase
         $this->withToken($login->json('token'))
             ->getJson('/api/wallets/aggregate')
             ->assertOk()
-            ->assertJsonPath('note', 'این گزارش تجمیعی فقط نمایشی است و دفاتر نقش‌ها ادغام نمی‌شوند.');
+            ->assertJsonPath('note', 'این گزارش تجمیعی فقط نمایشی است. کیف پورسانت هر نقش و کیف پاداش اضافه مدیر ارشد جدا می‌مانند و با هم ادغام حسابداری نمی‌شوند.');
     }
 
     public function test_commission_idempotency_and_ledger_immutability(): void

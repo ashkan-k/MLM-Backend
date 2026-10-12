@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
  * - Qualification points = 100 × successful gateway registrations this calendar month
  *   (rep: own; SM/DM: own + downline). Month counter resets each month.
  * - Hitting the month threshold permanently marks that month's counted gateways as bonus-eligible.
+ * - A per-user bonus default skips the threshold and marks every past and future counted gateway.
  * - Bonus = (qualified% − base%) × attributed profits on permanently eligible gateways (this month).
  * - Unpaid remainder (profits on non-eligible gateways) → senior residual wallet (kind bonus_residual), not the personal role wallet.
  */
@@ -379,6 +380,7 @@ class MonthlyBonusService
             ? $this->calculator->amount($profitSum, $bonusPercent)
             : '0.000';
 
+        $bonusDefault = (bool) ($progress['bonus_default'] ?? false);
         $guide = array_values(array_filter($progress['guide'] ?? []));
         $percentLabel = $this->formatPercentLabel($bonusPercent);
         if ($required > 0 && Money::cmp($bonusPercent, '0') > 0) {
@@ -389,6 +391,8 @@ class MonthlyBonusService
                     .' ('.$percentLabel.' از سود تراکنش روی همان درگاه‌ها '
                     .Money::normalize($profitSum, 3)
                     .').';
+            } elseif ($bonusDefault) {
+                $guide[] = 'پاداش پیش‌فرض فعال است و حد نصاب امتیاز لازم نیست. این ماه هنوز درگاه مشمول پاداش با سود تراکنش ندارد.';
             } elseif ($monthMet) {
                 $guide[] = 'حد نصاب امتیاز این ماه تکمیل شده؛ با اولین به‌روزرسانی، درگاه‌های ماه جاری دائمی می‌شوند.';
             } else {
@@ -413,6 +417,7 @@ class MonthlyBonusService
             'bonus_percent' => $bonusPercent,
             'bonus_amount' => $bonusAmount,
             'eligible_gateways' => count($eligibleIds),
+            'bonus_default' => $bonusDefault,
             'month' => $monthStart->format('Y-m'),
         ];
     }
@@ -489,7 +494,9 @@ class MonthlyBonusService
                     if (Money::cmp($bonusPercent, '0') <= 0) {
                         $payBlockedReason = 'درصد پاداش ماهانه این نقش صفر است.';
                     } elseif (Money::cmp($profitSum, '0') <= 0) {
-                        $payBlockedReason = 'سود تراکنش‌های پس از حد نصاب صفر است.';
+                        $payBlockedReason = ($preview['bonus_default'] ?? false)
+                            ? 'پاداش پیش‌فرض فعال است؛ سود تراکنش درگاه‌های مشمول در این ماه صفر است.'
+                            : 'سود تراکنش‌های پس از حد نصاب صفر است.';
                     } elseif (Money::cmp($bonusAmount, '0') <= 0) {
                         $payBlockedReason = 'مبلغ پاداش محاسبه‌شده صفر است.';
                     }
@@ -514,6 +521,7 @@ class MonthlyBonusService
                     'bonus_percent' => $bonusPercent,
                     'bonus_amount' => $bonusAmount,
                     'profit_sum' => $profitSum,
+                    'bonus_default' => $this->qualification->hasBonusDefault($member->id, (int) $role->id),
                 ];
             }
         }

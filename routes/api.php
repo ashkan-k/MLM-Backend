@@ -27,6 +27,8 @@ Route::get('/shared-links/token/{token}', [ReferralController::class, 'showByTok
 Route::post('/webhooks/frasoft', [SuperuserController::class, 'frasoftWebhook']);
 Route::post('/webhooks/finopal/transaction', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'transaction']);
 Route::post('/webhooks/finopal/org-structure', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'orgStructure']);
+Route::post('/webhooks/finopal/signup', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'signup']);
+Route::post('/webhooks/finopal/gateway', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'gateway']);
 
 Route::middleware(['auth.api'])->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
@@ -63,6 +65,8 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/points/monitor', [PointsController::class, 'monitor']);
         Route::get('/points/detail', [PointsController::class, 'detail']);
         Route::post('/points/adjust', [PointsController::class, 'adjust']);
+        Route::get('/points/bonus-defaults', [PointsController::class, 'bonusDefaults']);
+        Route::post('/points/bonus-default', [PointsController::class, 'bonusDefault']);
 
         Route::get('/referrals/codes', [ReferralController::class, 'codes']);
         Route::get('/referrals', [ReferralController::class, 'referrals']);

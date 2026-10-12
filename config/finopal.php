@@ -19,6 +19,8 @@ return [
     'ws_server' => env('FINOPAL_WS_URL', 'http://127.0.0.1:6001'),
     'ws_secret' => env('FINOPAL_WS_SECRET', 'finopal-ws-secret'),
     'webhook_secret' => env('FINOPAL_WEBHOOK_SECRET', ''),
+    /** Public Finopal login page. Our link passes the sales-org code as ?finonet_ref=, separate from Finopal's own ?code=. */
+    'signup_url' => env('FINOPAL_SIGNUP_URL', 'https://finopal.ir/login'),
 
     /*
     | Outbound VIP Partner API (finopal.ir/api/vip/v1).
