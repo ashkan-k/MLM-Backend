@@ -13,3 +13,8 @@ Schedule::command('finopal:pay-monthly-bonuses --month='.now()->subMonth()->form
     ->monthlyOn(1, '01:15')
     ->name('finopal-monthly-bonuses')
     ->withoutOverlapping();
+
+Schedule::command('finopal:dispatch-crm-reminders')
+    ->everyMinute()
+    ->name('finopal-crm-reminders')
+    ->withoutOverlapping();

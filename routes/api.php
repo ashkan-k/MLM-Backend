@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BenefitTransferController;
 use App\Http\Controllers\Api\ChatController;
+use App\Http\Controllers\Api\CrmController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\GatewayController;
 use App\Http\Controllers\Api\GeoController;
@@ -36,6 +37,14 @@ Route::middleware(['auth.api'])->group(function () {
     Route::post('/auth/switch-role', [AuthController::class, 'switchRole']);
 
     Route::middleware(['active.role'])->group(function () {
+        Route::get('/crm', [CrmController::class, 'index']);
+        Route::post('/crm/visits', [CrmController::class, 'storeVisit']);
+        Route::put('/crm/visits/{visit}', [CrmController::class, 'updateVisit']);
+        Route::delete('/crm/visits/{visit}', [CrmController::class, 'destroyVisit']);
+        Route::post('/crm/tasks', [CrmController::class, 'storeTask']);
+        Route::put('/crm/tasks/{task}', [CrmController::class, 'updateTask']);
+        Route::delete('/crm/tasks/{task}', [CrmController::class, 'destroyTask']);
+
         Route::get('/dashboard', [DashboardController::class, 'show']);
         Route::get('/reports', [ReportController::class, 'show']);
         Route::get('/organization/tree', [OrganizationController::class, 'tree']);
