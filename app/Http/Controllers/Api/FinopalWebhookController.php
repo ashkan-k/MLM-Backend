@@ -210,7 +210,7 @@ class FinopalWebhookController extends Controller
             'success' => true,
             'message' => $result['user_created']
                 ? 'ثبت کاربر از فینوپال در سازمان فروش انجام شد.'
-                : 'این کاربر از قبل در سازمان فروش بود و دوباره ساخته نشد.',
+                : 'اطلاعات این کاربر با داده‌های جدید به‌روز شد.',
             ...$result,
         ]);
     }

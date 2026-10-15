@@ -87,11 +87,22 @@ class FinopalSignupWebhookTest extends TestCase
         $this->assertSame($smNode->id, (int) $node->parent_node_id);
         $this->assertSame(0, GatewaySale::query()->count());
 
-        $again = $this->postJson('/api/webhooks/finopal/signup', $userPayload, [
+        $updated = $userPayload;
+        $updated['user']['name'] = 'کاربر ویرایش‌شده';
+        $updated['user']['birth_date'] = '1991-04-03';
+        $updated['user']['email'] = 'finopal-user@example.com';
+        $again = $this->postJson('/api/webhooks/finopal/signup', $updated, [
             'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
         ])->assertOk();
         $again->assertJsonPath('user_created', false)
+            ->assertJsonPath('user_updated', true)
+            ->assertJsonPath('user_skipped', false)
             ->assertJsonPath('user_id', $newbie->id);
+        $newbie->refresh();
+        $this->assertSame('کاربر ویرایش‌شده', $newbie->name);
+        $this->assertSame('1991-04-03', $newbie->birth_date?->toDateString());
+        $this->assertSame('finopal-user@example.com', $newbie->email);
+        $this->assertSame($smNode->id, (int) $node->fresh()->parent_node_id);
         $this->assertSame(1, User::query()->where('national_id', '1234567890')->count());
 
         $gateway = $this->postJson('/api/webhooks/finopal/gateway', $gatewayPayload, [
