@@ -43,6 +43,7 @@ class ProductCatalog
             'monthly_bonus', 'organizational', 'custom' => 'gateway_profit',
             'monthly_bonus_residual', 'bonus_residual' => 'monthly_bonus_residual',
             'ticket', 'tickets', 'finopal_ticketing' => 'ticketing',
+            'ghale_bazar', 'template_bazaar' => 'ghalebazar',
             default => $type,
         };
     }

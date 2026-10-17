@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CrmTask;
 use App\Models\CrmVisit;
+use App\Models\CrmVisitLog;
 use App\Services\Crm\CrmReminderService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -15,11 +16,14 @@ class CrmController extends Controller
     public function index(Request $request, CrmReminderService $reminders)
     {
         $user = $request->user();
+        $roleId = $this->roleId($request);
         $reminders->dispatchDue($user->id);
         $search = trim((string) $request->query('q', ''));
 
         $visits = CrmVisit::query()
+            ->withCount('logs')
             ->where('user_id', $user->id)
+            ->where('role_id', $roleId)
             ->when($search !== '', function ($q) use ($search) {
                 $like = '%'.$search.'%';
                 $q->where(function ($inner) use ($like) {
@@ -27,7 +31,8 @@ class CrmController extends Controller
                         ->orWhere('person_name', 'like', $like)
                         ->orWhere('national_id', 'like', $like)
                         ->orWhere('mobile', 'like', $like)
-                        ->orWhere('result', 'like', $like);
+                        ->orWhere('result', 'like', $like)
+                        ->orWhereHas('logs', fn ($logs) => $logs->where('body', 'like', $like));
                 });
             })
             ->orderByDesc('visited_on')
@@ -38,6 +43,7 @@ class CrmController extends Controller
 
         $tasks = CrmTask::query()
             ->where('user_id', $user->id)
+            ->where('role_id', $roleId)
             ->when($search !== '', function ($q) use ($search) {
                 $like = '%'.$search.'%';
                 $q->where(function ($inner) use ($like) {
@@ -55,7 +61,7 @@ class CrmController extends Controller
         return response()->json([
             'visits' => $visits,
             'tasks' => $tasks,
-            'open_tasks' => CrmTask::query()->where('user_id', $user->id)->whereNull('completed_at')->count(),
+            'open_tasks' => CrmTask::query()->where('user_id', $user->id)->where('role_id', $roleId)->whereNull('completed_at')->count(),
         ]);
     }
 
@@ -64,6 +70,7 @@ class CrmController extends Controller
         $data = $this->validateVisit($request);
         $visit = CrmVisit::query()->create([
             'user_id' => $request->user()->id,
+            'role_id' => $this->roleId($request),
             ...$data,
         ]);
 
@@ -72,7 +79,7 @@ class CrmController extends Controller
 
     public function updateVisit(Request $request, CrmVisit $visit)
     {
-        $this->own($request, $visit->user_id);
+        $this->own($request, $visit->user_id, $visit->role_id);
         $data = $this->validateVisit($request);
         if ($this->reminderMoved($visit->remind_at, $data['remind_at'] ?? null)) {
             $data = $this->rearm($data);
@@ -84,8 +91,45 @@ class CrmController extends Controller
 
     public function destroyVisit(Request $request, CrmVisit $visit)
     {
-        $this->own($request, $visit->user_id);
+        $this->own($request, $visit->user_id, $visit->role_id);
         $visit->delete();
+
+        return response()->json(['deleted' => true]);
+    }
+
+    public function showVisit(Request $request, CrmVisit $visit)
+    {
+        $this->own($request, $visit->user_id, $visit->role_id);
+        $visit->load(['logs' => fn ($q) => $q->orderByDesc('id')]);
+        $visit->setAttribute('logs_count', $visit->logs->count());
+
+        return response()->json($this->visitPayload($visit, true));
+    }
+
+    public function storeVisitLog(Request $request, CrmVisit $visit)
+    {
+        $this->own($request, $visit->user_id, $visit->role_id);
+        $request->merge(['body' => trim((string) $request->input('body', ''))]);
+        $data = $request->validate([
+            'body' => ['required', 'string', 'max:5000'],
+        ], [
+            'body.required' => 'متن گزارش الزامی است.',
+        ]);
+        $log = $visit->logs()->create([
+            'user_id' => $request->user()->id,
+            'body' => $data['body'],
+        ]);
+
+        return response()->json($this->logPayload($log), 201);
+    }
+
+    public function destroyVisitLog(Request $request, CrmVisit $visit, CrmVisitLog $log)
+    {
+        $this->own($request, $visit->user_id, $visit->role_id);
+        if ((int) $log->crm_visit_id !== (int) $visit->id) {
+            abort(404);
+        }
+        $log->delete();
 
         return response()->json(['deleted' => true]);
     }
@@ -95,6 +139,7 @@ class CrmController extends Controller
         $data = $this->validateTask($request);
         $task = CrmTask::query()->create([
             'user_id' => $request->user()->id,
+            'role_id' => $this->roleId($request),
             ...$data,
         ]);
 
@@ -103,7 +148,7 @@ class CrmController extends Controller
 
     public function updateTask(Request $request, CrmTask $task)
     {
-        $this->own($request, $task->user_id);
+        $this->own($request, $task->user_id, $task->role_id);
         $data = $this->validateTask($request, $request->boolean('completed'));
         if ($this->reminderMoved($task->due_at, $data['due_at'] ?? null)) {
             $data = $this->rearm($data);
@@ -118,15 +163,25 @@ class CrmController extends Controller
 
     public function destroyTask(Request $request, CrmTask $task)
     {
-        $this->own($request, $task->user_id);
+        $this->own($request, $task->user_id, $task->role_id);
         $task->delete();
 
         return response()->json(['deleted' => true]);
     }
 
-    private function own(Request $request, int $ownerId): void
+    private function roleId(Request $request): int
     {
-        if ((int) $request->user()->id !== $ownerId) {
+        $role = $request->attributes->get('active_role');
+        if (! $role) {
+            abort(403, 'نقش فعال معتبر نیست.');
+        }
+
+        return (int) $role->id;
+    }
+
+    private function own(Request $request, int $ownerId, ?int $roleId): void
+    {
+        if ((int) $request->user()->id !== $ownerId || $this->roleId($request) !== (int) $roleId) {
             abort(404);
         }
     }
@@ -258,9 +313,24 @@ class CrmController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function visitPayload(CrmVisit $visit): array
+    /**
+     * @return array<string, mixed>
+     */
+    private function logPayload(CrmVisitLog $log): array
     {
         return [
+            'id' => $log->id,
+            'body' => $log->body,
+            'created_at' => $log->created_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function visitPayload(CrmVisit $visit, bool $withLogs = false): array
+    {
+        $payload = [
             'id' => $visit->id,
             'visited_on' => $visit->visited_on?->toDateString(),
             'activity_type' => $visit->activity_type ?: 'visit',
@@ -275,7 +345,13 @@ class CrmController extends Controller
             'notify_in_app' => $visit->notify_in_app,
             'notify_sms' => $visit->notify_sms,
             'reminded_at' => $visit->reminded_at?->toIso8601String(),
+            'logs_count' => (int) ($visit->logs_count ?? 0),
         ];
+        if ($withLogs) {
+            $payload['logs'] = $visit->logs->map(fn (CrmVisitLog $log) => $this->logPayload($log))->values();
+        }
+
+        return $payload;
     }
 
     /**

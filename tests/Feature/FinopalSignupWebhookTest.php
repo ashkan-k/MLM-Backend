@@ -152,6 +152,23 @@ class FinopalSignupWebhookTest extends TestCase
             ->assertJsonPath('user_created', true);
     }
 
+    public function test_signup_links_point_at_each_product_site(): void
+    {
+        $links = collect(\App\Services\Integration\Finopal\FinopalSignupWebhookService::signupLinks('REF-SIGNUP-1'))
+            ->keyBy('product_type');
+
+        $this->assertSame(
+            'https://finopal.ir/login?finonet_ref=REF-SIGNUP-1',
+            $links['gateway_profit']['url']
+        );
+        $this->assertSame('قالب بازار', $links['ghalebazar']['label']);
+        $this->assertSame(
+            'https://ghalebazar.ir/account/profile?finonet_ref=REF-SIGNUP-1',
+            $links['ghalebazar']['url']
+        );
+        $this->assertArrayNotHasKey('ticketing', $links->all());
+    }
+
     private function role(string $slug, string $name, int $level): Role
     {
         return Role::query()->create([

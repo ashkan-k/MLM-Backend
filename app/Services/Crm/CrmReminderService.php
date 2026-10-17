@@ -84,8 +84,8 @@ class CrmReminderService
                 return false;
             }
 
-            $body = trim("فعالیت {$locked->person_name} در {$locked->place}".($locked->result ? " — {$locked->result}" : ''));
-            $done = $this->notify($user, $locked, 'یادآور فعالیت', $body, [
+            $body = trim("پیگیری {$locked->person_name} در {$locked->place}".($locked->result ? " — {$locked->result}" : ''));
+            $done = $this->notify($user, $locked, 'یادآور ثبت و پیگیری', $body, [
                 'kind' => 'visit',
                 'id' => $locked->id,
             ]);

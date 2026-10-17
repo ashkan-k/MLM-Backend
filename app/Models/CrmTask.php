@@ -9,6 +9,7 @@ class CrmTask extends Model
 {
     protected $fillable = [
         'user_id',
+        'role_id',
         'title',
         'priority',
         'notes',

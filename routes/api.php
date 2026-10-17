@@ -39,8 +39,11 @@ Route::middleware(['auth.api'])->group(function () {
     Route::middleware(['active.role'])->group(function () {
         Route::get('/crm', [CrmController::class, 'index']);
         Route::post('/crm/visits', [CrmController::class, 'storeVisit']);
+        Route::get('/crm/visits/{visit}', [CrmController::class, 'showVisit']);
         Route::put('/crm/visits/{visit}', [CrmController::class, 'updateVisit']);
         Route::delete('/crm/visits/{visit}', [CrmController::class, 'destroyVisit']);
+        Route::post('/crm/visits/{visit}/logs', [CrmController::class, 'storeVisitLog']);
+        Route::delete('/crm/visits/{visit}/logs/{log}', [CrmController::class, 'destroyVisitLog']);
         Route::post('/crm/tasks', [CrmController::class, 'storeTask']);
         Route::put('/crm/tasks/{task}', [CrmController::class, 'updateTask']);
         Route::delete('/crm/tasks/{task}', [CrmController::class, 'destroyTask']);

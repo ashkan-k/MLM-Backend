@@ -4,11 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CrmVisit extends Model
 {
     protected $fillable = [
         'user_id',
+        'role_id',
         'visited_on',
         'activity_type',
         'place',
@@ -41,5 +43,10 @@ class CrmVisit extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function logs(): HasMany
+    {
+        return $this->hasMany(CrmVisitLog::class);
     }
 }

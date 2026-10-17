@@ -33,6 +33,7 @@ class ReferralController extends Controller
                     'id' => $code->id,
                     'code' => $code->code,
                     'finopal_signup_url' => \App\Services\Integration\Finopal\FinopalSignupWebhookService::signupUrl($code->code),
+                    'signup_links' => \App\Services\Integration\Finopal\FinopalSignupWebhookService::signupLinks($code->code),
                 ])
         );
     }

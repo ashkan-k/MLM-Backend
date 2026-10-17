@@ -66,6 +66,7 @@ return [
             'requires_owner' => false,
             'sale_points' => 0,
             'default_code' => 'GATEWAY',
+            'signup_url' => env('FINOPAL_SIGNUP_URL', 'https://finopal.ir/login'),
         ],
         'ticketing' => [
             'label' => 'سیستم تیکتینگ فینوپال',
@@ -80,6 +81,14 @@ return [
             'requires_owner' => true,
             'sale_points' => 0,
             'default_code' => 'SUBSCRIPTION',
+        ],
+        'ghalebazar' => [
+            'label' => 'قالب بازار',
+            'requires_merchant' => false,
+            'requires_owner' => true,
+            'sale_points' => 0,
+            'default_code' => 'GHALEBAZAR',
+            'signup_url' => env('GHALEBAZAR_SIGNUP_URL', 'https://ghalebazar.ir/account/profile'),
         ],
         'monthly_bonus_residual' => [
             'label' => 'مابقی پاداش',

@@ -71,7 +71,7 @@ class CrmReminderTest extends TestCase
 
         $this->assertNotNull(CrmVisit::query()->find($visit->json('id'))->reminded_at);
         $this->assertSame(1, Notification::query()->where('user_id', $owner->id)->where('type', 'crm_reminder')->count());
-        $this->assertSame('یادآور فعالیت', Notification::query()->where('user_id', $owner->id)->value('title'));
+        $this->assertSame('یادآور ثبت و پیگیری', Notification::query()->where('user_id', $owner->id)->value('title'));
         $this->assertNull(CrmTask::query()->where('user_id', $owner->id)->value('reminded_at'));
 
         $this->artisan('finopal:dispatch-crm-reminders')->assertSuccessful();
@@ -189,6 +189,93 @@ class CrmReminderTest extends TestCase
         $this->assertNotNull($task->notified_at);
         $this->assertNotNull($task->reminded_at);
         $this->assertSame(2, Notification::query()->where('user_id', $owner->id)->count());
+    }
+
+    public function test_follow_up_logs_stay_on_the_owners_visit(): void
+    {
+        $owner = $this->user('09121110021');
+        $other = $this->user('09121110022');
+        $token = $this->token($owner);
+
+        $visit = $this->withToken($token)->postJson('/api/crm/visits', [
+            'visited_on' => '2026-10-15',
+            'place' => 'پاساژ',
+            'person_name' => 'نگار',
+            'result' => 'شروع',
+        ])->assertCreated();
+
+        $this->withToken($token)->postJson('/api/crm/visits/'.$visit->json('id').'/logs', [
+            'body' => '   ',
+        ])->assertStatus(422);
+
+        $this->withToken($token)->postJson('/api/crm/visits/'.$visit->json('id').'/logs', [
+            'body' => 'وارد مرحله ۲ شد',
+        ])->assertCreated()->assertJsonPath('body', 'وارد مرحله ۲ شد');
+
+        $this->withToken($token)->getJson('/api/crm/visits/'.$visit->json('id'))
+            ->assertOk()
+            ->assertJsonPath('logs.0.body', 'وارد مرحله ۲ شد')
+            ->assertJsonPath('logs_count', 1)
+            ->assertJsonPath('result', 'شروع');
+
+        $this->withToken($this->token($other))->postJson('/api/crm/visits/'.$visit->json('id').'/logs', [
+            'body' => 'نفوذ',
+        ])->assertNotFound();
+
+        $this->withToken($this->token($other))->getJson('/api/crm/visits/'.$visit->json('id'))->assertNotFound();
+
+        $this->withToken($token)->getJson('/api/crm?q='.rawurlencode('مرحله ۲'))
+            ->assertOk()
+            ->assertJsonPath('visits.0.person_name', 'نگار');
+    }
+
+    public function test_each_role_panel_keeps_its_own_records(): void
+    {
+        $repRole = Role::query()->firstOrCreate(
+            ['slug' => 'representative'],
+            ['name' => 'نماینده', 'hierarchy_level' => 5, 'is_organizational' => true, 'is_active' => true]
+        );
+        $seniorRole = Role::query()->firstOrCreate(
+            ['slug' => 'senior_manager'],
+            ['name' => 'مدیر ارشد', 'hierarchy_level' => 1, 'is_organizational' => true, 'is_active' => true]
+        );
+        $user = User::factory()->create(['mobile' => '09121110031', 'is_active' => true]);
+        foreach ([$repRole, $seniorRole] as $role) {
+            UserRole::query()->create([
+                'user_id' => $user->id,
+                'role_id' => $role->id,
+                'effective_from' => now()->toDateString(),
+                'is_primary' => $role->slug === 'representative',
+                'is_active' => true,
+            ]);
+        }
+        [, $repToken] = $user->createApiToken($repRole->id);
+        [, $seniorToken] = $user->createApiToken($seniorRole->id);
+
+        $this->withToken($repToken)->postJson('/api/crm/visits', [
+            'visited_on' => '2026-10-15',
+            'place' => 'پنل نماینده',
+            'person_name' => 'مخاطب نماینده',
+        ])->assertCreated();
+        $this->withToken($seniorToken)->postJson('/api/crm/tasks', [
+            'title' => 'وظیفه مدیر ارشد',
+            'notify_in_app' => false,
+            'notify_sms' => false,
+        ])->assertCreated();
+
+        $rep = $this->withToken($repToken)->getJson('/api/crm')->assertOk();
+        $rep->assertJsonPath('visits.0.person_name', 'مخاطب نماینده');
+        $rep->assertJsonCount(0, 'tasks');
+
+        $senior = $this->withToken($seniorToken)->getJson('/api/crm')->assertOk();
+        $senior->assertJsonCount(0, 'visits');
+        $senior->assertJsonPath('tasks.0.title', 'وظیفه مدیر ارشد');
+
+        $visitId = $rep->json('visits.0.id');
+        $this->withToken($seniorToken)->getJson('/api/crm/visits/'.$visitId)->assertNotFound();
+        $this->withToken($seniorToken)->postJson('/api/crm/visits/'.$visitId.'/logs', [
+            'body' => 'نباید ثبت شود',
+        ])->assertNotFound();
     }
 
     private function user(string $mobile): User

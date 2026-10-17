@@ -207,12 +207,38 @@ class FinopalSignupWebhookService
         return $value;
     }
 
-    public static function signupUrl(string $code): string
+    public static function signupUrl(string $code, ?string $base = null): string
     {
-        $base = rtrim((string) config('finopal.signup_url', 'https://finopal.ir/login'), '?&');
+        $base = rtrim((string) ($base ?: config('finopal.signup_url', 'https://finopal.ir/login')), '?&');
         $join = str_contains($base, '?') ? '&' : '?';
 
         return $base.$join.'finonet_ref='.rawurlencode($code);
+    }
+
+    /**
+     * Products that have their own public signup site.
+     *
+     * @return list<array{product_type:string,label:string,url:string}>
+     */
+    public static function signupLinks(string $code): array
+    {
+        $links = [];
+        foreach ((array) config('finopal.products', []) as $type => $cfg) {
+            if ($type === '_default' || ! is_array($cfg)) {
+                continue;
+            }
+            $url = trim((string) ($cfg['signup_url'] ?? ''));
+            if ($url === '') {
+                continue;
+            }
+            $links[] = [
+                'product_type' => (string) $type,
+                'label' => (string) ($cfg['label'] ?? $type),
+                'url' => self::signupUrl($code, $url),
+            ];
+        }
+
+        return $links;
     }
 
     private function referrer(string $code): User

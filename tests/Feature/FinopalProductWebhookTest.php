@@ -98,6 +98,43 @@ class FinopalProductWebhookTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_ghalebazar_product_webhook_uses_owner_and_keeps_its_type(): void
+    {
+        $rep = User::query()->where('mobile', '09125555555')->firstOrFail();
+        $rep->forceFill(['national_id' => '0077665544'])->save();
+
+        $this->postJson('/api/webhooks/finopal/transaction', [
+            'product_type' => 'ghalebazar',
+            'amount' => 1000,
+            'profit' => 100,
+            'currency' => 'IRT',
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertStatus(422);
+
+        $res = $this->postJson('/api/webhooks/finopal/transaction', [
+            'event' => 'transaction.verified',
+            'product_type' => 'ghale-bazar',
+            'title' => 'خرید قالب',
+            'owner_national_id' => '0077665544',
+            'authority' => 'FP_GHALE_1',
+            'amount' => 2000000,
+            'profit' => 200000,
+            'currency' => 'IRT',
+            'status' => 'OK',
+            'code' => 100,
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk()->assertJsonPath('duplicate', false);
+
+        $tx = FinopalTransaction::query()->findOrFail($res->json('id'));
+        $this->assertSame('ghalebazar', $tx->product_type);
+        $this->assertSame('GHALEBAZAR', $tx->product_code);
+        $this->assertSame('قالب بازار', \App\Support\ProductCatalog::label($tx->product_type));
+        $this->assertNotNull($tx->product_sale_id);
+        $this->assertGreaterThan(0, $res->json('commissions'));
+    }
+
     public function test_non_gateway_product_requires_owner(): void
     {
         $this->postJson('/api/webhooks/finopal/transaction', [
