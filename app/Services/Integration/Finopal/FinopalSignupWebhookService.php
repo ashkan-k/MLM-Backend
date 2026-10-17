@@ -223,18 +223,11 @@ class FinopalSignupWebhookService
     public static function signupLinks(string $code): array
     {
         $links = [];
-        foreach ((array) config('finopal.products', []) as $type => $cfg) {
-            if ($type === '_default' || ! is_array($cfg)) {
-                continue;
-            }
-            $url = trim((string) ($cfg['signup_url'] ?? ''));
-            if ($url === '') {
-                continue;
-            }
+        foreach (\App\Support\ProductCatalog::signupDefinitions() as $row) {
             $links[] = [
-                'product_type' => (string) $type,
-                'label' => (string) ($cfg['label'] ?? $type),
-                'url' => self::signupUrl($code, $url),
+                'product_type' => (string) $row['type'],
+                'label' => (string) $row['label'],
+                'url' => self::signupUrl($code, (string) $row['signup_url']),
             ];
         }
 

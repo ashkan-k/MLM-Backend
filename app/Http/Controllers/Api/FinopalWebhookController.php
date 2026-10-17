@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Integration\Finopal\FinopalOrgSyncService;
 use App\Services\Integration\Finopal\FinopalSignupWebhookService;
 use App\Services\Integration\Finopal\FinopalTransactionService;
+use App\Support\ProductCatalog;
 use Illuminate\Http\Request;
 use RuntimeException;
 
@@ -73,8 +74,11 @@ class FinopalWebhookController extends Controller
             'metadata' => 'متادیتا',
         ]);
 
-        $productType = strtolower((string) ($data['product_type'] ?? 'gateway_profit'));
-        $isGateway = in_array($productType, ['gateway_profit', 'gateway', 'gateway_payment', 'payment_gateway', ''], true);
+        $productType = ProductCatalog::normalize($data['product_type'] ?? null);
+        if (! ProductCatalog::known($productType)) {
+            return response()->json(['message' => 'این نوع محصول در سامانه تعریف نشده است.'], 422);
+        }
+        $isGateway = (bool) (ProductCatalog::definition($productType)['requires_merchant'] ?? false);
         if ($isGateway && empty($data['merchant_id']) && empty($data['merchant_code'])) {
             return response()->json(['message' => 'برای محصول درگاه، merchant_id الزامی است.'], 422);
         }

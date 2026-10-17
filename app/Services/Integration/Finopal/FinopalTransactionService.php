@@ -26,6 +26,12 @@ class FinopalTransactionService
         unset($payload['webhook_secret']);
 
         $productType = ProductCatalog::normalize($payload['product_type'] ?? $payload['productType'] ?? null);
+        if (! ProductCatalog::known($productType)) {
+            throw new RuntimeException('این نوع محصول در سامانه تعریف نشده است.');
+        }
+        if (empty(ProductCatalog::definition($productType)['is_active'])) {
+            throw new RuntimeException('این نوع محصول غیرفعال است.');
+        }
         $productCode = isset($payload['product_code'])
             ? trim((string) $payload['product_code'])
             : (isset($payload['productCode']) ? trim((string) $payload['productCode']) : null);

@@ -6,6 +6,7 @@ use App\Models\ProductSale;
 use App\Services\Commission\CommissionDistributor;
 use App\Services\Commission\SalePartyResolver;
 use App\Support\Money;
+use App\Support\ProductCatalog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -39,14 +40,14 @@ class ProductSaleService
         $reps = $this->resolveOwners($payload);
         $this->distributor->assertShares($reps);
 
-        $points = (int) (config("finopal.products.{$productType}.sale_points")
-            ?? config('finopal.products._default.sale_points', 0));
+        $definition = ProductCatalog::definition($productType);
+        $points = (int) ($definition['sale_points'] ?? 0);
 
-        return DB::transaction(function () use ($payload, $productType, $productCode, $amount, $external, $key, $reps, $points) {
+        return DB::transaction(function () use ($payload, $productType, $productCode, $amount, $external, $key, $reps, $points, $definition) {
             $sale = ProductSale::query()->create([
                 'product_type' => $productType,
                 'product_code' => $productCode,
-                'title' => $payload['title'] ?? (config("finopal.products.{$productType}.label") ?? $productType),
+                'title' => $payload['title'] ?? ($definition['label'] ?? $productType),
                 'external_ref' => $external !== '' ? $external : null,
                 'amount' => $amount,
                 'full_sales_points' => $points,

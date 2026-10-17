@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BenefitTransferController;
+use App\Http\Controllers\Api\CatalogProductController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\CrmController;
 use App\Http\Controllers\Api\DashboardController;
@@ -47,6 +48,8 @@ Route::middleware(['auth.api'])->group(function () {
         Route::post('/crm/tasks', [CrmController::class, 'storeTask']);
         Route::put('/crm/tasks/{task}', [CrmController::class, 'updateTask']);
         Route::delete('/crm/tasks/{task}', [CrmController::class, 'destroyTask']);
+
+        Route::get('/catalog/products', [CatalogProductController::class, 'options']);
 
         Route::get('/dashboard', [DashboardController::class, 'show']);
         Route::get('/reports', [ReportController::class, 'show']);
@@ -150,6 +153,10 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/roles', [SuperuserController::class, 'roles']);
         Route::get('/permissions', [SuperuserController::class, 'permissions']);
         Route::post('/permissions/assign', [SuperuserController::class, 'assignPermission']);
+        Route::get('/products', [CatalogProductController::class, 'index']);
+        Route::post('/products', [CatalogProductController::class, 'store']);
+        Route::put('/products/{product}', [CatalogProductController::class, 'update']);
+        Route::delete('/products/{product}', [CatalogProductController::class, 'destroy']);
         Route::get('/settings', [SuperuserController::class, 'settings']);
         Route::post('/settings', [SuperuserController::class, 'updateSetting']);
         Route::get('/commission-rules', [SuperuserController::class, 'commissionRules']);
