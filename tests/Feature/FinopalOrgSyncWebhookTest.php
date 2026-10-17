@@ -78,6 +78,7 @@ class FinopalOrgSyncWebhookTest extends TestCase
 
         $this->assertNotNull($senior);
         $this->assertTrue($senior->hasRole('senior_manager'));
+        $this->assertSame('1368-10-11', $senior->birth_date?->toDateString());
         $this->assertTrue($dm->hasRole('development_manager'));
         $this->assertTrue($sm->hasRole('sales_manager'));
         $this->assertTrue($rep->hasRole('representative'));

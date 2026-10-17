@@ -100,7 +100,13 @@ class FinopalSignupWebhookTest extends TestCase
             ->assertJsonPath('user_id', $newbie->id);
         $newbie->refresh();
         $this->assertSame('کاربر ویرایش‌شده', $newbie->name);
-        $this->assertSame('1991-04-03', $newbie->birth_date?->toDateString());
+        $this->assertSame('1370-01-14', $newbie->birth_date?->toDateString());
+        $updated['user']['birth_date'] = '1368/04/26';
+        $this->postJson('/api/webhooks/finopal/signup', $updated, [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk();
+        $newbie->refresh();
+        $this->assertSame('1368-04-26', $newbie->birth_date?->toDateString());
         $this->assertSame('finopal-user@example.com', $newbie->email);
         $this->assertSame($smNode->id, (int) $node->fresh()->parent_node_id);
         $this->assertSame(1, User::query()->where('national_id', '1234567890')->count());

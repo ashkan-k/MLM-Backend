@@ -6,6 +6,7 @@ use App\Models\OrganizationNode;
 use App\Models\ReferralCode;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\JalaliDate;
 use App\Models\UserRole;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Sms\SmsService;
@@ -413,15 +414,7 @@ class FinopalOrgSyncService
 
     private function normalizeDate(string $value): ?string
     {
-        $value = trim($value);
-        if ($value === '') {
-            return null;
-        }
-        try {
-            return \Carbon\Carbon::parse($value)->toDateString();
-        } catch (\Throwable) {
-            return null;
-        }
+        return JalaliDate::store($value);
     }
 
     private function digits(string $value): string

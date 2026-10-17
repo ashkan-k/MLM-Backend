@@ -8,6 +8,7 @@ use App\Models\ReferralCode;
 use App\Models\RepresentativeReferral;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\JalaliDate;
 use App\Models\UserRole;
 use App\Services\Gateway\GatewaySaleService;
 use App\Services\Organization\OrganizationTreeService;
@@ -394,11 +395,7 @@ class FinopalSignupWebhookService
 
     private function dateOrNull(mixed $value): ?string
     {
-        if (! is_string($value) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
-            return null;
-        }
-
-        return $value;
+        return JalaliDate::store($value);
     }
 
     private function emptyToNull(mixed $value): ?string

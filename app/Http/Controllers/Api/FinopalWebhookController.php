@@ -147,7 +147,9 @@ class FinopalWebhookController extends Controller
         ]);
 
         try {
-            $result = $sync->sync($data + $request->all());
+            // Validated data only keeps listed keys. Nested birth dates and profile
+            // fields must still reach the sync, so the original body fills the gaps.
+            $result = $sync->sync(array_replace_recursive($data, $request->all()));
         } catch (RuntimeException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }
