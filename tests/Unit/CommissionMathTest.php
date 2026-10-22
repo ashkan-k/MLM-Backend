@@ -45,6 +45,13 @@ class CommissionMathTest extends TestCase
         ]);
     }
 
+    public function test_toman_display_has_no_decimals(): void
+    {
+        $this->assertSame('27,522', Money::formatToman('27522.000'));
+        $this->assertSame('1,834,800', Money::formatToman('1834800.000'));
+        $this->assertSame('0', Money::formatToman('0.000'));
+    }
+
     public function test_money_never_uses_binary_floats(): void
     {
         $this->assertSame('150000.000', Money::percentOf('1000000', '15.000'));

@@ -49,4 +49,12 @@ class Money
     {
         return bccomp(self::normalize($a, $scale), self::normalize($b, $scale), $scale);
     }
+
+    /** Whole toman for UI copy: no decimals, thousands separators (e.g. 27,522). */
+    public static function formatToman(string|int|float $value): string
+    {
+        $whole = (int) round((float) self::normalize($value, 3));
+
+        return number_format($whole, 0, '.', ',');
+    }
 }

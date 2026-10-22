@@ -387,9 +387,9 @@ class MonthlyBonusService
             if ($qualified) {
                 $guide[] = 'درگاه‌های واجد شرایط دائمی: '.count($eligibleIds)
                     .'؛ پاداش قابل واریز این ماه '
-                    .Money::normalize($bonusAmount, 3)
+                    .Money::formatToman($bonusAmount)
                     .' ('.$percentLabel.' از سود تراکنش روی همان درگاه‌ها '
-                    .Money::normalize($profitSum, 3)
+                    .Money::formatToman($profitSum)
                     .').';
             } elseif ($bonusDefault) {
                 $guide[] = 'پاداش پیش‌فرض فعال است و حد نصاب امتیاز لازم نیست. این ماه هنوز درگاه مشمول پاداش با سود تراکنش ندارد.';
