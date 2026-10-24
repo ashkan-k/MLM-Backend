@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\UserBonusDefault;
 use App\Models\UserPointAdjustment;
 use App\Services\Organization\OrganizationTreeService;
+use App\Support\JalaliDate;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
@@ -32,10 +33,10 @@ class QualificationService
     }
 
     /** Distinct successful gateway registrations counting for this role this month. */
-    public function monthGatewayIds(string $ruleCode, User $user, int $roleId, CarbonInterface $at): array
+    public function monthGatewayIds(string $ruleCode, User $user, int $roleId, CarbonInterface $at, ?string $monthKey = null): array
     {
-        $start = $at->copy()->startOfMonth();
-        $end = $at->copy()->endOfMonth()->min($at);
+        [$start, $end] = JalaliDate::businessMonthBounds($at, $monthKey, false);
+        $end = $end->copy()->min($at);
 
         return match ($ruleCode) {
             'representative' => $this->representativeGatewayIds($user, $start, $end),
@@ -44,14 +45,14 @@ class QualificationService
         };
     }
 
-    public function gatewayPoints(string $ruleCode, User $user, int $roleId, CarbonInterface $at): int
+    public function gatewayPoints(string $ruleCode, User $user, int $roleId, CarbonInterface $at, ?string $monthKey = null): int
     {
-        return count($this->monthGatewayIds($ruleCode, $user, $roleId, $at)) * $this->pointsPerGateway();
+        return count($this->monthGatewayIds($ruleCode, $user, $roleId, $at, $monthKey)) * $this->pointsPerGateway();
     }
 
-    public function manualPoints(User $user, int $roleId, CarbonInterface $at): int
+    public function manualPoints(User $user, int $roleId, CarbonInterface $at, ?string $monthKey = null): int
     {
-        $key = $at->copy()->startOfMonth()->format('Y-m');
+        $key = $monthKey ?? JalaliDate::businessMonthKey($at);
 
         return (int) UserPointAdjustment::query()
             ->where('user_id', $user->id)
@@ -60,9 +61,10 @@ class QualificationService
             ->sum('delta_points');
     }
 
-    public function monthPoints(string $ruleCode, User $user, int $roleId, CarbonInterface $at): int
+    public function monthPoints(string $ruleCode, User $user, int $roleId, CarbonInterface $at, ?string $monthKey = null): int
     {
-        return $this->gatewayPoints($ruleCode, $user, $roleId, $at) + $this->manualPoints($user, $roleId, $at);
+        return $this->gatewayPoints($ruleCode, $user, $roleId, $at, $monthKey)
+            + $this->manualPoints($user, $roleId, $at, $monthKey);
     }
 
     public function requiredPoints(string $ruleCode): int
@@ -77,14 +79,14 @@ class QualificationService
         };
     }
 
-    public function isQualified(string $ruleCode, User $user, int $roleId, CarbonInterface $at): bool
+    public function isQualified(string $ruleCode, User $user, int $roleId, CarbonInterface $at, ?string $monthKey = null): bool
     {
         $required = $this->requiredPoints($ruleCode);
         if ($required <= 0) {
             return false;
         }
 
-        return $this->monthPoints($ruleCode, $user, $roleId, $at) >= $required
+        return $this->monthPoints($ruleCode, $user, $roleId, $at, $monthKey) >= $required
             || $this->hasPermanentEligibilities($user->id, $roleId);
     }
 
@@ -92,14 +94,14 @@ class QualificationService
      * True if user already has any permanently eligible gateways (keeps earning on those forever).
      * Month threshold itself still gates marking NEW gateways this month.
      */
-    public function monthThresholdMet(string $ruleCode, User $user, int $roleId, CarbonInterface $at): bool
+    public function monthThresholdMet(string $ruleCode, User $user, int $roleId, CarbonInterface $at, ?string $monthKey = null): bool
     {
         $required = $this->requiredPoints($ruleCode);
         if ($required <= 0) {
             return false;
         }
 
-        return $this->monthPoints($ruleCode, $user, $roleId, $at) >= $required;
+        return $this->monthPoints($ruleCode, $user, $roleId, $at, $monthKey) >= $required;
     }
 
     public function hasPermanentEligibilities(int $userId, int $roleId): bool
@@ -140,9 +142,9 @@ class QualificationService
         };
     }
 
-    public function syncPermanentEligibilities(string $ruleCode, User $user, int $roleId, CarbonInterface $at): int
+    public function syncPermanentEligibilities(string $ruleCode, User $user, int $roleId, CarbonInterface $at, ?string $monthKey = null): int
     {
-        $monthKey = $at->copy()->startOfMonth()->format('Y-m');
+        $monthKey = $monthKey ?? JalaliDate::businessMonthKey($at);
 
         if ($this->hasBonusDefault((int) $user->id, $roleId)) {
             return $this->lockSales(
@@ -153,14 +155,14 @@ class QualificationService
             );
         }
 
-        if (! $this->monthThresholdMet($ruleCode, $user, $roleId, $at)) {
+        if (! $this->monthThresholdMet($ruleCode, $user, $roleId, $at, $monthKey)) {
             return 0;
         }
 
         return $this->lockSales(
             (int) $user->id,
             $roleId,
-            $this->monthGatewayIds($ruleCode, $user, $roleId, $at),
+            $this->monthGatewayIds($ruleCode, $user, $roleId, $at, $monthKey),
             $monthKey,
         );
     }
@@ -197,7 +199,7 @@ class QualificationService
             ->all();
     }
 
-    public function progress(string $ruleCode, User $user, int $roleId, CarbonInterface $at): array
+    public function progress(string $ruleCode, User $user, int $roleId, CarbonInterface $at, ?string $monthKey = null): array
     {
         $required = $this->requiredPoints($ruleCode);
         if ($required <= 0) {
@@ -212,10 +214,10 @@ class QualificationService
             ];
         }
 
-        $gatewayPoints = $this->gatewayPoints($ruleCode, $user, $roleId, $at);
-        $manualPoints = $this->manualPoints($user, $roleId, $at);
+        $gatewayPoints = $this->gatewayPoints($ruleCode, $user, $roleId, $at, $monthKey);
+        $manualPoints = $this->manualPoints($user, $roleId, $at, $monthKey);
         $actual = $gatewayPoints + $manualPoints;
-        $gateways = count($this->monthGatewayIds($ruleCode, $user, $roleId, $at));
+        $gateways = count($this->monthGatewayIds($ruleCode, $user, $roleId, $at, $monthKey));
         $needGateways = (int) ceil($required / max(1, $this->pointsPerGateway()));
         $remaining = max(0, $required - $actual);
         $fmt = static fn (int|float $n): string => number_format((float) $n, 0, '.', ',');

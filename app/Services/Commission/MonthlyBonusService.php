@@ -7,6 +7,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Wallet\WalletService;
+use App\Support\JalaliDate;
 use App\Support\Money;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
@@ -34,9 +35,7 @@ class MonthlyBonusService
     public function refresh(User $user, string $roleSlug, ?CarbonInterface $at = null): ?Commission
     {
         $at = $at ? $at->copy() : now();
-        $monthStart = $at->copy()->startOfMonth();
-        $monthEnd = $at->copy()->endOfMonth();
-        $monthKey = $monthStart->format('Y-m');
+        [$monthStart, $monthEnd, $monthKey] = JalaliDate::businessMonthBounds($at, null, true);
 
         $role = Role::query()->where('slug', $roleSlug)->first();
         if (! $role) {
@@ -53,18 +52,18 @@ class MonthlyBonusService
             return null;
         }
 
-        $progress = $this->qualification->progress($roleSlug, $user, $role->id, $at);
+        $progress = $this->qualification->progress($roleSlug, $user, $role->id, $at, $monthKey);
         if ((float) ($progress['required'] ?? 0) <= 0) {
             return null;
         }
 
         $key = "monthly-bonus:{$user->id}:{$role->id}:{$monthKey}";
 
-        return DB::transaction(function () use ($user, $role, $roleSlug, $version, $bonusPercent, $at, $monthStart, $monthEnd, $key) {
+        return DB::transaction(function () use ($user, $role, $roleSlug, $version, $bonusPercent, $at, $monthStart, $monthEnd, $key, $monthKey) {
             $existing = Commission::query()->where('idempotency_key', $key)->lockForUpdate()->first();
 
             // قفل دائمی درگاه‌های این ماه در صورت رسیدن به حد نصاب امتیاز
-            $this->qualification->syncPermanentEligibilities($roleSlug, $user, $role->id, $at);
+            $this->qualification->syncPermanentEligibilities($roleSlug, $user, $role->id, $at, $monthKey);
 
             $eligibleIds = $this->qualification->permanentEligibleSaleIds($user->id, $role->id);
             $profitSum = $eligibleIds === []
@@ -91,7 +90,7 @@ class MonthlyBonusService
             $wallet = $this->wallets->walletFor($user, $role);
             $meta = [
                 'type' => 'monthly_bonus',
-                'month' => $monthStart->format('Y-m'),
+                'month' => $monthKey,
                 'bonus_percent' => $bonusPercent,
                 'qualified_percent' => Money::normalize((string) $version->qualified_percent),
                 'base_percent' => Money::normalize((string) $version->percent),
@@ -177,8 +176,7 @@ class MonthlyBonusService
     public function refreshMonth(?CarbonInterface $at = null): int
     {
         $at = $at ? $at->copy() : now();
-        $monthStart = $at->copy()->startOfMonth();
-        $monthEnd = $at->copy()->endOfMonth();
+        [$monthStart, $monthEnd] = JalaliDate::businessMonthBounds($at, null, true);
 
         $pairs = Commission::query()
             ->select('user_id', 'role_id')
@@ -211,9 +209,7 @@ class MonthlyBonusService
     public function settleUnpaidToSenior(?CarbonInterface $at = null): ?Commission
     {
         $at = $at ? $at->copy() : now();
-        $monthStart = $at->copy()->startOfMonth();
-        $monthEnd = $at->copy()->endOfMonth();
-        $monthKey = $monthStart->format('Y-m');
+        [$monthStart, $monthEnd, $monthKey] = JalaliDate::businessMonthBounds($at, null, true);
         $bonusRoles = ['representative', 'sales_manager', 'development_manager'];
 
         $seniorRole = Role::query()->where('slug', 'senior_manager')->first();
@@ -257,7 +253,7 @@ class MonthlyBonusService
                 continue;
             }
 
-            $this->qualification->syncPermanentEligibilities($role->slug, $user, $role->id, $at);
+            $this->qualification->syncPermanentEligibilities($role->slug, $user, $role->id, $at, $monthKey);
             $eligibleIds = $this->qualification->permanentEligibleSaleIds($user->id, $role->id);
             $fullProfit = $this->monthlyAttributedProfit($user->id, $role->id, $monthStart, $monthEnd);
             if (Money::cmp($fullProfit, '0') <= 0) {
@@ -357,20 +353,19 @@ class MonthlyBonusService
     public function preview(User $user, string $roleSlug, ?CarbonInterface $at = null): array
     {
         $at = $at ? $at->copy() : now();
-        $monthStart = $at->copy()->startOfMonth();
-        $monthEnd = $at->copy()->endOfMonth();
+        [$monthStart, $monthEnd, $monthKey] = JalaliDate::businessMonthBounds($at, null, true);
         $role = Role::query()->where('slug', $roleSlug)->first();
         if (! $role) {
             return ['eligible' => false, 'qualified' => false, 'profit_sum' => '0.000', 'bonus_percent' => '0.000', 'bonus_amount' => '0.000'];
         }
 
         $version = $this->rules->resolve($roleSlug, $at);
-        $progress = $this->qualification->progress($roleSlug, $user, $role->id, $at);
+        $progress = $this->qualification->progress($roleSlug, $user, $role->id, $at, $monthKey);
         $bonusPercent = $version ? $this->bonusDeltaPercent($version) : '0.000';
         $required = (float) ($progress['required'] ?? 0);
-        $this->qualification->syncPermanentEligibilities($roleSlug, $user, $role->id, $at);
+        $this->qualification->syncPermanentEligibilities($roleSlug, $user, $role->id, $at, $monthKey);
         $eligibleIds = $this->qualification->permanentEligibleSaleIds($user->id, $role->id);
-        $monthMet = $this->qualification->monthThresholdMet($roleSlug, $user, $role->id, $at);
+        $monthMet = $this->qualification->monthThresholdMet($roleSlug, $user, $role->id, $at, $monthKey);
         $qualified = $eligibleIds !== [];
         $profitSum = $qualified
             ? $this->monthlyAttributedProfit($user->id, $role->id, $monthStart, $monthEnd, $eligibleIds)
@@ -418,7 +413,7 @@ class MonthlyBonusService
             'bonus_amount' => $bonusAmount,
             'eligible_gateways' => count($eligibleIds),
             'bonus_default' => $bonusDefault,
-            'month' => $monthStart->format('Y-m'),
+            'month' => $monthKey,
         ];
     }
 
@@ -431,7 +426,7 @@ class MonthlyBonusService
         ?CarbonInterface $at = null,
     ): array {
         $at = $at ? $at->copy() : now();
-        $monthKey = $at->copy()->startOfMonth()->format('Y-m');
+        $monthKey = JalaliDate::businessMonthKey($at);
         $perPage = max(1, min(50, $perPage));
         $bonusRoleSlugs = ['representative', 'sales_manager', 'development_manager'];
         if ($roleSlug && ! in_array($roleSlug, $bonusRoleSlugs, true)) {
@@ -682,6 +677,11 @@ class MonthlyBonusService
         }
 
         return $sum;
+    }
+
+    public function reversePosted(Commission $commission): void
+    {
+        $this->reverse($commission);
     }
 
     private function reverse(Commission $commission): void

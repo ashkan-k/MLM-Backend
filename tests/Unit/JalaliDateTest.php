@@ -26,4 +26,16 @@ class JalaliDateTest extends TestCase
         $this->assertNull(JalaliDate::store(''));
         $this->assertNull(JalaliDate::store('not-a-date'));
     }
+
+    public function test_business_month_switches_to_jalali_from_aban(): void
+    {
+        $mehr = \Carbon\Carbon::parse('2026-10-21 12:00:00', JalaliDate::TIMEZONE);
+        $this->assertSame('2026-10', JalaliDate::businessMonthKey($mehr));
+
+        $aban = \Carbon\Carbon::parse('2026-10-24 12:00:00', JalaliDate::TIMEZONE);
+        $this->assertSame('1405-08', JalaliDate::businessMonthKey($aban));
+
+        [$start] = JalaliDate::businessMonthBounds($aban, '1405-08', true);
+        $this->assertTrue($start->equalTo(JalaliDate::bonusJalaliProfitCutover()));
+    }
 }

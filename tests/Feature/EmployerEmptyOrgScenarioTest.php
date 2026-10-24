@@ -105,7 +105,7 @@ class EmployerEmptyOrgScenarioTest extends TestCase
         $sale = $this->recordSoloSale($ali, 'GW-EMPTY-RES-1', 'fino-empty-res-0001');
         $this->webhook($sale->gateway->merchant_code, 'FP_EMPTY_RES_1', 100000);
 
-        $month = now()->format('Y-m');
+        $month = \App\Support\JalaliDate::businessMonthKey();
         $repRole = Role::query()->where('slug', 'representative')->firstOrFail();
         $this->assertFalse(
             Commission::query()
@@ -137,7 +137,7 @@ class EmployerEmptyOrgScenarioTest extends TestCase
 
         $this->webhook($sale->gateway->merchant_code, 'FP_EMPTY_BONUS_1', 100000);
 
-        $month = now()->format('Y-m');
+        $month = \App\Support\JalaliDate::businessMonthKey();
         $repRole = Role::query()->where('slug', 'representative')->firstOrFail();
 
         $this->assertTrue(
@@ -308,7 +308,7 @@ class EmployerEmptyOrgScenarioTest extends TestCase
         $this->assertEqualsWithDelta(5 * 10500.0, (float) $baseA, 0.05);
 
         // پاداش نماینده C پس از حد نصاب (۵ درگاه × ۱۰۰ ≥ ۱۰۰)
-        $month = now()->format('Y-m');
+        $month = \App\Support\JalaliDate::businessMonthKey();
         $repRole = Role::query()->where('slug', 'representative')->firstOrFail();
         $cBonus = Commission::query()
             ->where('idempotency_key', "monthly-bonus:{$c->id}:{$repRole->id}:{$month}")

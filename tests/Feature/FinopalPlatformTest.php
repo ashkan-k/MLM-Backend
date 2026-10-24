@@ -864,7 +864,7 @@ class FinopalPlatformTest extends TestCase
             'role_slug' => 'representative',
         ])->assertForbidden();
 
-        $key = 'monthly-bonus:'.$perTx->user_id.':'.$perTx->role_id.':'.now()->format('Y-m');
+        $key = 'monthly-bonus:'.$perTx->user_id.':'.$perTx->role_id.':'.\App\Support\JalaliDate::businessMonthKey();
         $existingBonus = Commission::query()->where('idempotency_key', $key)->where('status', 'posted')->first();
         $this->assertNotNull($existingBonus);
 

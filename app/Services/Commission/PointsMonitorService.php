@@ -13,6 +13,7 @@ use App\Models\UserBonusDefault;
 use App\Models\UserPointAdjustment;
 use App\Services\Audit\AuditService;
 use App\Services\Organization\OrganizationTreeService;
+use App\Support\JalaliDate;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
@@ -48,7 +49,9 @@ class PointsMonitorService
         $this->assertMonitorAccess($viewer);
 
         $at = $this->resolveMonth($monthKey);
-        $key = $at->format('Y-m');
+        $key = $monthKey && preg_match('/^\d{4}-\d{2}$/', $monthKey)
+            ? $monthKey
+            : JalaliDate::businessMonthKey($at);
         $ppg = $this->qualification->pointsPerGateway();
         $thresholds = $this->qualification->thresholds();
 
@@ -61,7 +64,7 @@ class PointsMonitorService
             ->get(['user_id', 'role_id'])
             ->mapWithKeys(fn (UserBonusDefault $row) => [$row->user_id.':'.$row->role_id => true]);
 
-        $annotate = function (array $nodes) use (&$annotate, $at, $ppg, $bonusDefaults): array {
+        $annotate = function (array $nodes) use (&$annotate, $at, $ppg, $bonusDefaults, $key): array {
             $out = [];
             foreach ($nodes as $node) {
                 $user = $node['user'] ?? null;
@@ -74,9 +77,9 @@ class PointsMonitorService
                 if ($user && $slug && in_array($slug, self::POINT_ROLES, true) && $roleId) {
                     $userModel = $user instanceof User ? $user : User::query()->find((int) (is_array($user) ? $user['id'] : $user->id));
                     if ($userModel) {
-                        $gatewayIds = $this->qualification->monthGatewayIds($slug, $userModel, (int) $roleId, $at);
+                        $gatewayIds = $this->qualification->monthGatewayIds($slug, $userModel, (int) $roleId, $at, $key);
                         $gatewayPoints = count($gatewayIds) * $ppg;
-                        $manualPoints = $this->qualification->manualPoints($userModel, (int) $roleId, $at);
+                        $manualPoints = $this->qualification->manualPoints($userModel, (int) $roleId, $at, $key);
                         $actual = $gatewayPoints + $manualPoints;
                         $required = $this->qualification->requiredPoints($slug);
                         $qualified = $required > 0 && $actual >= $required;
@@ -128,7 +131,7 @@ class PointsMonitorService
         $tree = $annotate($rawTree);
 
         // نقش‌های پنهان (مثلاً SM وقتی DM نقش بالاتر است) را در لیست تخت هم بدهیم
-        $flatRoles = $this->flatRoleSnapshots($viewer, $at, $roles, $ppg);
+        $flatRoles = $this->flatRoleSnapshots($viewer, $at, $roles, $ppg, $key);
 
         if ($search) {
             $needle = mb_strtolower(trim($search));
@@ -189,12 +192,14 @@ class PointsMonitorService
 
         $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
         $at = $this->resolveMonth($monthKey);
-        $key = $at->format('Y-m');
+        $key = $monthKey && preg_match('/^\d{4}-\d{2}$/', $monthKey)
+            ? $monthKey
+            : JalaliDate::businessMonthKey($at);
         $ppg = $this->qualification->pointsPerGateway();
 
-        $gatewayRows = $this->gatewayBreakdown($roleSlug, $target, (int) $role->id, $at, $ppg);
+        $gatewayRows = $this->gatewayBreakdown($roleSlug, $target, (int) $role->id, $at, $ppg, $key);
         $gatewayPoints = count($gatewayRows) * $ppg;
-        $manualPoints = $this->qualification->manualPoints($target, (int) $role->id, $at);
+        $manualPoints = $this->qualification->manualPoints($target, (int) $role->id, $at, $key);
         $actual = $gatewayPoints + $manualPoints;
         $required = $this->qualification->requiredPoints($roleSlug);
 
@@ -392,16 +397,12 @@ class PointsMonitorService
             ->where('idempotency_key', 'not like', 'monthly-bonus:%')
             ->where('idempotency_key', 'not like', 'monthly-bonus-residual:%')
             ->pluck('created_at')
-            ->map(fn ($at) => Carbon::parse($at)->format('Y-m'))
-            ->push(now()->format('Y-m'))
+            ->map(fn ($at) => JalaliDate::businessMonthKey(Carbon::parse($at)))
+            ->push(JalaliDate::businessMonthKey())
             ->unique()
             ->values();
 
-        return $keys->map(function (string $key) {
-            $start = Carbon::createFromFormat('Y-m', $key)->startOfMonth();
-
-            return $start->isSameMonth(now()) ? now() : $start->copy()->endOfMonth();
-        })->all();
+        return $keys->map(fn (string $key) => JalaliDate::atBusinessMonthEnd(null, $key))->all();
     }
 
     public function adjust(
@@ -425,7 +426,9 @@ class PointsMonitorService
         $target = User::query()->findOrFail($userId);
         $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
         $at = $this->resolveMonth($monthKey);
-        $key = $at->format('Y-m');
+        $key = $monthKey && preg_match('/^\d{4}-\d{2}$/', $monthKey)
+            ? $monthKey
+            : JalaliDate::businessMonthKey($at);
 
         $row = DB::transaction(function () use ($actor, $target, $role, $deltaPoints, $key, $note, $roleSlug, $at) {
             $created = UserPointAdjustment::query()->create([
@@ -438,7 +441,7 @@ class PointsMonitorService
             ]);
 
             // اگر با این تغییر حد نصاب تکمیل شد، درگاه‌های ماه را قفل دائمی کن
-            $this->qualification->syncPermanentEligibilities($roleSlug, $target, (int) $role->id, $at);
+            $this->qualification->syncPermanentEligibilities($roleSlug, $target, (int) $role->id, $at, $key);
 
             $this->audit->record($actor, 'points.manual_adjust', $target, null, [
                 'role_slug' => $roleSlug,
@@ -457,14 +460,7 @@ class PointsMonitorService
     private function resolveMonth(?string $monthKey): CarbonInterface
     {
         if ($monthKey && preg_match('/^\d{4}-\d{2}$/', $monthKey)) {
-            $start = Carbon::createFromFormat('Y-m', $monthKey)->startOfMonth();
-            $end = $start->copy()->endOfMonth();
-            // برای ماه جاری تا «الان»، برای ماه‌های گذشته تا پایان همان ماه
-            if ($start->isSameMonth(now())) {
-                return now();
-            }
-
-            return $end;
+            return JalaliDate::atBusinessMonthEnd(null, $monthKey);
         }
 
         return now();
@@ -498,8 +494,9 @@ class PointsMonitorService
      * @param  \Illuminate\Support\Collection<string, Role>  $roles
      * @return list<array>
      */
-    private function flatRoleSnapshots(User $viewer, CarbonInterface $at, $roles, int $ppg): array
+    private function flatRoleSnapshots(User $viewer, CarbonInterface $at, $roles, int $ppg, ?string $monthKey = null): array
     {
+        $key = $monthKey ?? JalaliDate::businessMonthKey($at);
         $query = User::query()->where('is_active', true)->whereHas('roles', fn ($q) => $q->whereIn('slug', self::POINT_ROLES));
 
         if (! $viewer->isSuperuser()) {
@@ -517,9 +514,9 @@ class PointsMonitorService
                 if (! isset($roles[$role->slug])) {
                     continue;
                 }
-                $gatewayIds = $this->qualification->monthGatewayIds($role->slug, $user, (int) $role->id, $at);
+                $gatewayIds = $this->qualification->monthGatewayIds($role->slug, $user, (int) $role->id, $at, $key);
                 $gatewayPoints = count($gatewayIds) * $ppg;
-                $manualPoints = $this->qualification->manualPoints($user, (int) $role->id, $at);
+                $manualPoints = $this->qualification->manualPoints($user, (int) $role->id, $at, $key);
                 $actual = $gatewayPoints + $manualPoints;
                 $required = $this->qualification->requiredPoints($role->slug);
                 $rows[] = [
@@ -553,8 +550,9 @@ class PointsMonitorService
         int $roleId,
         CarbonInterface $at,
         int $ppg,
+        ?string $monthKey = null,
     ): array {
-        $ids = $this->qualification->monthGatewayIds($ruleCode, $user, $roleId, $at);
+        $ids = $this->qualification->monthGatewayIds($ruleCode, $user, $roleId, $at, $monthKey);
         if ($ids === []) {
             return [];
         }
