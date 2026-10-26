@@ -15,6 +15,7 @@ use App\Services\Organization\OrganizationTreeService;
 use App\Services\Referral\SharedLinkService;
 use App\Services\Wallet\WalletService;
 use App\Services\Authorization\PermissionService;
+use App\Services\Goals\GoalBankService;
 use App\Support\ReferralCodeGenerator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -264,6 +265,7 @@ class AuthController extends Controller
             'features' => [
                 'shared_links' => SystemSetting::sharedLinkFeatures(),
                 'product_oriented' => (bool) config('finopal.product_oriented', false),
+                'goal_bank' => app(GoalBankService::class)->featureState($user, $role),
             ],
         ];
     }

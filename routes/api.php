@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\CrmController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\GatewayController;
 use App\Http\Controllers\Api\GeoController;
+use App\Http\Controllers\Api\GoalBankController;
 use App\Http\Controllers\Api\MonthlyBonusController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
@@ -82,6 +83,20 @@ Route::middleware(['auth.api'])->group(function () {
         Route::post('/points/adjust', [PointsController::class, 'adjust']);
         Route::get('/points/bonus-defaults', [PointsController::class, 'bonusDefaults']);
         Route::post('/points/bonus-default', [PointsController::class, 'bonusDefault']);
+
+        Route::get('/goals/me', [GoalBankController::class, 'me']);
+        Route::get('/goals/bank', [GoalBankController::class, 'index']);
+        Route::get('/goals/bank/import-template', [GoalBankController::class, 'importTemplate']);
+        Route::post('/goals/bank/import', [GoalBankController::class, 'import']);
+        Route::post('/goals/bank', [GoalBankController::class, 'store']);
+        Route::put('/goals/bank/{item}', [GoalBankController::class, 'update']);
+        Route::delete('/goals/bank/{item}', [GoalBankController::class, 'destroy']);
+        Route::post('/goals/bank/assign', [GoalBankController::class, 'assign']);
+        Route::post('/goals/bank/{item}/claim', [GoalBankController::class, 'claim']);
+        Route::post('/goals/bank/{item}/complete', [GoalBankController::class, 'complete']);
+        Route::post('/goals/bank/{item}/fail', [GoalBankController::class, 'fail']);
+        Route::get('/goals/access', [GoalBankController::class, 'accessIndex']);
+        Route::post('/goals/access', [GoalBankController::class, 'accessStore']);
 
         Route::get('/referrals/codes', [ReferralController::class, 'codes']);
         Route::get('/referrals', [ReferralController::class, 'referrals']);

@@ -1730,7 +1730,7 @@ class FinopalPlatformTest extends TestCase
 
         $this->assertGreaterThan(0, (int) $tx->json('commissions'));
 
-        $month = now()->format('Y-m');
+        $month = \App\Support\JalaliDate::businessMonthKey();
         $rep = User::query()->where('mobile', '09125555555')->firstOrFail();
         $sales = User::query()->where('mobile', '09123333333')->firstOrFail();
         $dev = User::query()->where('mobile', '09122222222')->firstOrFail();

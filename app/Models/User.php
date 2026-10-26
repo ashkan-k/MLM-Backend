@@ -25,6 +25,8 @@ class User extends Authenticatable
         'birth_date',
         'sheba',
         'email',
+        'province',
+        'city',
         'password',
         'avatar',
         'is_active',
