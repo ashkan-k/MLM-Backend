@@ -192,9 +192,46 @@ class GoalBankTest extends TestCase
         $this->assertTrue(collect($completed)->every(fn ($row) => $row['status'] === 'completed'));
         $this->assertContains($a, collect($completed)->pluck('id')->all());
 
+        $stats = $this->withToken($this->seniorToken)
+            ->getJson('/api/goals/bank/user-stats?user_id='.$this->rep->id)
+            ->assertOk()
+            ->json('stats');
+        $this->assertSame(2, $stats['total']);
+        $this->assertSame(1, $stats['completed']);
+        $this->assertSame(1, $stats['in_progress']);
+        $this->assertSame(0, $stats['failed']);
+        $this->assertEquals(100, $stats['success_rate']);
+
         $this->withToken($this->repToken)
             ->getJson('/api/goals/bank?user_id='.$this->senior->id)
             ->assertForbidden();
+    }
+
+    public function test_access_store_keeps_enabled_when_updating_location(): void
+    {
+        $res = $this->withToken($this->seniorToken)->postJson('/api/goals/access', [
+            'user_id' => $this->rep->id,
+            'enabled' => true,
+            'max_concurrent' => 4,
+            'province' => 'تهران',
+            'city' => 'تهران',
+        ])->assertOk();
+
+        $this->assertTrue($res->json('access.enabled'));
+        $this->assertStringContainsString('روشن', $res->json('message'));
+        $this->assertStringNotContainsString('غیرفعال', $res->json('message'));
+
+        $again = $this->withToken($this->seniorToken)->postJson('/api/goals/access', [
+            'user_id' => $this->rep->id,
+            'enabled' => true,
+            'max_concurrent' => 4,
+            'province' => 'البرز',
+            'city' => 'کرج',
+        ])->assertOk();
+
+        $this->assertTrue($again->json('access.enabled'));
+        $this->assertSame('البرز', $again->json('access.province'));
+        $this->assertStringContainsString('روشن', $again->json('message'));
     }
 
     public function test_login_payload_includes_goal_bank_feature(): void
@@ -278,8 +315,8 @@ class GoalBankTest extends TestCase
 
         $tmp = sys_get_temp_dir().DIRECTORY_SEPARATOR.'goal-bank-import-'.uniqid().'.xlsx';
         \App\Support\SimpleSpreadsheet::writeXlsx($tmp, \App\Services\Goals\GoalBankService::IMPORT_HEADERS, [
-            ['کانال نمونه ۱', 'ایتا', 'https://eitaa.com/sample1', '1200', 'توضیح', 'تهران', 'تهران', '', '', '09121112233'],
-            ['کانال نمونه ۲', 'تلگرام', 'https://t.me/sample2', '850', '', 'البرز', 'کرج', '', '', ''],
+            ['کانال نمونه ۱', 'ایتا', 'https://eitaa.com/sample1', '1200', 'توضیح نمونه', 'تهران', 'تهران', 'خیابان ولیعصر', '02188776655', '09121112233'],
+            ['کانال نمونه ۲', 'تلگرام', 'https://t.me/sample2', '850', 'توضیح کامل', 'البرز', 'کرج', 'بلوار دانشجو', '02634445566', '09123334455'],
         ]);
 
         $this->withToken($this->seniorToken)
@@ -295,13 +332,17 @@ class GoalBankTest extends TestCase
             ->assertOk()
             ->assertJsonPath('imported', 2);
 
-        $this->assertSame(
-            2,
-            GoalBankItem::query()
-                ->where('created_by', $this->senior->id)
-                ->where('name', 'like', 'کانال نمونه%')
-                ->count()
-        );
+        $row2 = GoalBankItem::query()
+            ->where('created_by', $this->senior->id)
+            ->where('name', 'کانال نمونه ۲')
+            ->first();
+        $this->assertNotNull($row2);
+        $this->assertSame('البرز', $row2->province);
+        $this->assertSame('کرج', $row2->city);
+        $this->assertSame('بلوار دانشجو', $row2->address);
+        $this->assertSame('02634445566', $row2->phone);
+        $this->assertSame('09123334455', $row2->mobile);
+        $this->assertSame('توضیح کامل', $row2->description);
         @unlink($tmp);
     }
 

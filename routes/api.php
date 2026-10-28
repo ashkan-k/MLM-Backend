@@ -88,6 +88,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/goals/bank', [GoalBankController::class, 'index']);
         Route::get('/goals/bank/import-template', [GoalBankController::class, 'importTemplate']);
         Route::post('/goals/bank/import', [GoalBankController::class, 'import']);
+        Route::get('/goals/bank/user-stats', [GoalBankController::class, 'userStats']);
         Route::post('/goals/bank', [GoalBankController::class, 'store']);
         Route::put('/goals/bank/{item}', [GoalBankController::class, 'update']);
         Route::delete('/goals/bank/{item}', [GoalBankController::class, 'destroy']);

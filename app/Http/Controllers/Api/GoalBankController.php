@@ -190,11 +190,12 @@ class GoalBankController extends Controller
         ]);
 
         $touchLocation = array_key_exists('province', $data) || array_key_exists('city', $data);
+        $enabled = $request->boolean('enabled');
 
         $row = $goals->setAccess(
             $request->user(),
             (int) $data['user_id'],
-            (bool) $data['enabled'],
+            $enabled,
             (int) $data['max_concurrent'],
             isset($data['role_id']) ? (int) $data['role_id'] : null,
             $touchLocation,
@@ -204,18 +205,36 @@ class GoalBankController extends Controller
 
         $target = User::query()->find($row->user_id);
 
+        $parts = ['تنظیمات بانک اهداف ذخیره شد.'];
+        $parts[] = $row->enabled
+            ? 'دسترسی روشن است (مشترک همهٔ نقش‌ها) — هر نوبت '.$row->max_concurrent.' پارت.'
+            : 'دسترسی خاموش است.';
+        if ($touchLocation) {
+            $loc = trim(implode(' / ', array_filter([$target?->province, $target?->city])));
+            $parts[] = $loc !== '' ? 'موقعیت: '.$loc : 'موقعیت مکانی پاک شد.';
+        }
+
         return response()->json([
             'access' => [
                 'user_id' => $row->user_id,
                 'role_id' => $row->role_id,
-                'enabled' => $row->enabled,
+                'enabled' => (bool) $row->enabled,
                 'max_concurrent' => $row->max_concurrent,
                 'province' => $target?->province,
                 'city' => $target?->city,
             ],
-            'message' => $row->enabled
-                ? 'دسترسی بانک اهداف فعال شد (مشترک برای همهٔ نقش‌های کاربر).'
-                : 'دسترسی بانک اهداف غیرفعال شد.',
+            'message' => implode(' ', $parts),
+        ]);
+    }
+
+    public function userStats(Request $request, GoalBankService $goals)
+    {
+        $data = $request->validate([
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+        ]);
+
+        return response()->json([
+            'stats' => $goals->userPartStats($request->user(), (int) $data['user_id']),
         ]);
     }
 

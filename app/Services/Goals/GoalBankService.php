@@ -399,6 +399,51 @@ class GoalBankService
         return $query->paginate(max(1, min(50, $perPage)));
     }
 
+    /**
+     * خلاصه وضعیت پارت‌های یک کاربر برای مانیتورینگ.
+     *
+     * @return array{
+     *   user_id: int,
+     *   total: int,
+     *   in_progress: int,
+     *   completed: int,
+     *   failed: int,
+     *   success_rate: float|null
+     * }
+     */
+    public function userPartStats(User $viewer, int $claimedByUserId): array
+    {
+        $this->assertManager($viewer);
+        $target = User::query()->findOrFail($claimedByUserId);
+        if (! $viewer->isSuperuser()) {
+            $allowed = $this->tree->descendantUserIds($viewer)->push($viewer->id)->all();
+            if (! in_array($target->id, $allowed, true)) {
+                abort(403, 'این کاربر در زیرمجموعه شما نیست.');
+            }
+        }
+
+        $rows = GoalBankItem::query()
+            ->where('claimed_by_user_id', $target->id)
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
+        $inProgress = (int) ($rows[GoalBankItem::STATUS_IN_PROGRESS] ?? 0);
+        $completed = (int) ($rows[GoalBankItem::STATUS_COMPLETED] ?? 0);
+        $failed = (int) ($rows[GoalBankItem::STATUS_FAILED] ?? 0);
+        $total = $inProgress + $completed + $failed;
+        $decided = $completed + $failed;
+
+        return [
+            'user_id' => $target->id,
+            'total' => $total,
+            'in_progress' => $inProgress,
+            'completed' => $completed,
+            'failed' => $failed,
+            'success_rate' => $decided > 0 ? round(($completed / $decided) * 100, 1) : null,
+        ];
+    }
+
     public function create(User $actor, array $data): GoalBankItem
     {
         $this->assertManager($actor);
@@ -439,9 +484,9 @@ class GoalBankService
         'توضیحات',
         'استان',
         'شهر',
-        'آدرس',
-        'تلفن',
-        'موبایل',
+        'آدرس دقیق',
+        'شماره تماس',
+        'شماره موبایل',
     ];
 
     public const IMPORT_MAX_ROWS = 15000;
@@ -457,8 +502,8 @@ class GoalBankService
         }
 
         SimpleSpreadsheet::writeXlsx($path, self::IMPORT_HEADERS, [
-            ['کانال نمونه ۱', 'ایتا', 'https://eitaa.com/sample1', '1200', 'توضیح نمونه', 'تهران', 'تهران', 'خیابان نمونه', '02188776655', '09121112233'],
-            ['کانال نمونه ۲', 'تلگرام', 'https://t.me/sample2', '850', '', 'البرز', 'کرج', '', '', '09123334455'],
+            ['کانال نمونه ۱', 'ایتا', 'https://eitaa.com/sample1', '1200', 'توضیح نمونه برای پشتیبانی', 'تهران', 'تهران', 'خیابان ولیعصر، پلاک ۱۰', '02188776655', '09121112233'],
+            ['کانال نمونه ۲', 'تلگرام', 'https://t.me/sample2', '850', 'نمونه کامل همهٔ ستون‌ها', 'البرز', 'کرج', 'بلوار دانشجو، کوچه ۳', '02634445566', '09123334455'],
         ]);
 
         return response()->download(
@@ -594,12 +639,12 @@ class GoalBankService
             'platform' => ['پلتفرم', 'platform'],
             'platform_url' => ['آدرس پلتفرم', 'platform_url', 'url', 'لینک'],
             'audience_count' => ['تعداد مخاطبین', 'audience_count', 'audience', 'مخاطب'],
-            'description' => ['توضیحات', 'description', 'desc'],
+            'description' => ['توضیحات', 'description', 'desc', 'شرح'],
             'province' => ['استان', 'province', 'state'],
             'city' => ['شهر', 'city'],
-            'address' => ['آدرس', 'address'],
-            'phone' => ['تلفن', 'phone', 'tel', 'شماره تماس'],
-            'mobile' => ['موبایل', 'mobile', 'شماره موبایل'],
+            'address' => ['آدرس دقیق', 'آدرس', 'address'],
+            'phone' => ['شماره تماس', 'تلفن', 'phone', 'tel'],
+            'mobile' => ['شماره موبایل', 'موبایل', 'mobile'],
         ];
 
         $map = [];
