@@ -18,7 +18,7 @@ class ReferralController extends Controller
     public function codes(Request $request)
     {
         $user = $request->user();
-        ReferralCode::query()->firstOrCreate(
+        $row = ReferralCode::query()->firstOrCreate(
             ['user_id' => $user->id],
             [
                 'code' => ReferralCodeGenerator::unique(),
@@ -27,14 +27,26 @@ class ReferralController extends Controller
             ]
         );
 
+        if (ReferralCodeGenerator::looksPredictable($row->code)) {
+            $row->code = ReferralCodeGenerator::unique();
+            $row->save();
+        }
+
         return response()->json(
             ReferralCode::query()->where('user_id', $user->id)->where('is_active', true)->get()
-                ->map(fn (ReferralCode $code) => [
-                    'id' => $code->id,
-                    'code' => $code->code,
-                    'finopal_signup_url' => \App\Services\Integration\Finopal\FinopalSignupWebhookService::signupUrl($code->code),
-                    'signup_links' => \App\Services\Integration\Finopal\FinopalSignupWebhookService::signupLinks($code->code),
-                ])
+                ->map(function (ReferralCode $code) {
+                    if (ReferralCodeGenerator::looksPredictable($code->code)) {
+                        $code->code = ReferralCodeGenerator::unique();
+                        $code->save();
+                    }
+
+                    return [
+                        'id' => $code->id,
+                        'code' => $code->code,
+                        'finopal_signup_url' => \App\Services\Integration\Finopal\FinopalSignupWebhookService::signupUrl($code->code),
+                        'signup_links' => \App\Services\Integration\Finopal\FinopalSignupWebhookService::signupLinks($code->code),
+                    ];
+                })
         );
     }
 

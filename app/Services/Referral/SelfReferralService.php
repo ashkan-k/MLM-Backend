@@ -33,6 +33,11 @@ class SelfReferralService
             ]
         );
 
+        if (ReferralCodeGenerator::looksPredictable($code->code)) {
+            $code->code = ReferralCodeGenerator::unique();
+            $code->save();
+        }
+
         RepresentativeReferral::query()->firstOrCreate(
             ['referred_user_id' => $senior->id],
             [
