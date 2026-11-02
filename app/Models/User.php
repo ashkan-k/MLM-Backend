@@ -97,7 +97,7 @@ class User extends Authenticatable
         return $this->hasRole('superuser');
     }
 
-    public function createApiToken(?int $activeRoleId = null, string $name = 'api'): array
+    public function createApiToken(?int $activeRoleId = null, string $name = 'api', ?\DateTimeInterface $expiresAt = null): array
     {
         $plain = Str::random(64);
 
@@ -105,6 +105,7 @@ class User extends Authenticatable
             'name' => $name,
             'token' => hash('sha256', $plain),
             'active_role_id' => $activeRoleId,
+            'expires_at' => $expiresAt,
         ]);
 
         return [$token, $plain];

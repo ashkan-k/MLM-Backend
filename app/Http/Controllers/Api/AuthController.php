@@ -14,8 +14,7 @@ use App\Models\UserRole;
 use App\Services\Organization\OrganizationTreeService;
 use App\Services\Referral\SharedLinkService;
 use App\Services\Wallet\WalletService;
-use App\Services\Authorization\PermissionService;
-use App\Services\Goals\GoalBankService;
+use App\Support\AuthUserPresenter;
 use App\Support\ReferralCodeGenerator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -54,7 +53,7 @@ class AuthController extends Controller
 
         return response()->json([
             'token' => $plain,
-            'user' => $this->payload($user->fresh('roles'), $role),
+            'user' => AuthUserPresenter::make($user->fresh('roles'), $role),
         ]);
     }
 
@@ -203,7 +202,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'token' => $plain,
-                'user' => $this->payload($user->fresh('roles'), $repRole),
+                'user' => AuthUserPresenter::make($user->fresh('roles'), $repRole),
                 'referral_code' => $code->code,
             ], 201);
         });
@@ -212,8 +211,9 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $role = $request->attributes->get('active_role');
+        $token = $request->attributes->get('api_token');
 
-        return response()->json($this->payload($request->user()->load('roles'), $role));
+        return response()->json(AuthUserPresenter::make($request->user()->load('roles'), $role, $token));
     }
 
     public function logout(Request $request)
@@ -236,37 +236,6 @@ class AuthController extends Controller
         $token->active_role_id = $role->id;
         $token->save();
 
-        return response()->json($this->payload($user->fresh('roles'), $role));
-    }
-
-    private function payload(User $user, $role): array
-    {
-        return [
-            'id' => $user->id,
-            'name' => $user->name,
-            'mobile' => $user->mobile,
-            'email' => $user->email,
-            'avatar_url' => $user->avatar_url,
-            'is_superuser' => $user->isSuperuser(),
-            'roles' => $user->roles->map(fn ($r) => [
-                'id' => $r->id,
-                'name' => $r->name,
-                'slug' => $r->slug,
-                'hierarchy_level' => $r->hierarchy_level,
-                'is_organizational' => (bool) $r->is_organizational,
-                'is_active' => (bool) $r->pivot->is_active,
-            ])->values(),
-            'active_role' => $role ? [
-                'id' => $role->id,
-                'name' => $role->name,
-                'slug' => $role->slug,
-            ] : null,
-            'permissions' => app(PermissionService::class)->slugsFor($user, $role),
-            'features' => [
-                'shared_links' => SystemSetting::sharedLinkFeatures(),
-                'product_oriented' => (bool) config('finopal.product_oriented', false),
-                'goal_bank' => app(GoalBankService::class)->featureState($user, $role),
-            ],
-        ];
+        return response()->json(AuthUserPresenter::make($user->fresh('roles'), $role, $token));
     }
 }

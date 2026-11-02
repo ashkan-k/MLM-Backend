@@ -27,6 +27,7 @@ use App\Services\Referral\SelfReferralService;
 use App\Services\Report\SuperuserReportService;
 use App\Services\User\UserBlockService;
 use App\Services\Wallet\WalletService;
+use App\Support\AuthUserPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -283,6 +284,45 @@ class SuperuserController extends Controller
         $user->delete();
 
         return response()->json(['ok' => true, 'soft_deleted' => false]);
+    }
+
+    /**
+     * Silent panel access for monitoring: issues a separate short-lived token for the target user
+     * so the superuser session in the original tab stays intact.
+     */
+    public function impersonate(Request $request, User $user, AuditService $audit)
+    {
+        $data = $request->validate([
+            'role_slug' => ['required', 'string'],
+        ]);
+
+        if (! $user->is_active) {
+            return response()->json(['message' => 'این حساب غیرفعال است و نمی‌توان وارد پنلش شد.'], 422);
+        }
+
+        $role = $user->activeRoles()->where('slug', $data['role_slug'])->first();
+        if (! $role) {
+            return response()->json(['message' => 'نقش انتخاب‌شده برای این کاربر فعال نیست.'], 422);
+        }
+
+        $actor = $request->user();
+        [$token, $plain] = $user->createApiToken(
+            $role->id,
+            'impersonation:'.$actor->id,
+            now()->addHours(4),
+        );
+
+        $audit->record($actor, 'user.impersonated', $user, null, [
+            'role_slug' => $role->slug,
+            'token_id' => $token->id,
+            'silent' => true,
+        ]);
+
+        return response()->json([
+            'token' => $plain,
+            'redirect_path' => AuthUserPresenter::dashboardPath($role->slug),
+            'user' => AuthUserPresenter::make($user->fresh('roles'), $role, $token),
+        ]);
     }
 
     public function assignRole(Request $request, User $user, WalletService $wallets, AuditService $audit)
@@ -979,6 +1019,7 @@ class SuperuserController extends Controller
             'user.created' => 'ایجاد کاربر',
             'user.updated' => 'ویرایش کاربر',
             'user.deleted' => 'حذف یا غیرفعال‌سازی کاربر',
+            'user.impersonated' => 'ورود بی‌سر و صدا به پنل کاربر',
             'role.assigned' => 'اختصاص نقش',
             'permission.role_assigned' => 'اعطای دسترسی به نقش',
             'permission.role_revoked' => 'سلب دسترسی از نقش',

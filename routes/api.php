@@ -166,6 +166,7 @@ Route::middleware(['auth.api'])->group(function () {
         Route::match(['put', 'post'], '/users/{user}', [SuperuserController::class, 'updateUser']);
         Route::delete('/users/{user}', [SuperuserController::class, 'destroyUser']);
         Route::post('/users/{user}/roles', [SuperuserController::class, 'assignRole']);
+        Route::post('/users/{user}/impersonate', [SuperuserController::class, 'impersonate']);
         Route::get('/roles', [SuperuserController::class, 'roles']);
         Route::get('/permissions', [SuperuserController::class, 'permissions']);
         Route::post('/permissions/assign', [SuperuserController::class, 'assignPermission']);

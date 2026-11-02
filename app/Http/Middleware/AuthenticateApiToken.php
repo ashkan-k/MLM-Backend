@@ -24,6 +24,12 @@ class AuthenticateApiToken
             return response()->json(['message' => 'توکن نامعتبر است.'], 401);
         }
 
+        if ($token->expires_at && $token->expires_at->isPast()) {
+            $token->delete();
+
+            return response()->json(['message' => 'توکن منقضی شده است.'], 401);
+        }
+
         $token->forceFill(['last_used_at' => now()])->save();
         $request->setUserResolver(fn () => $token->user);
         $request->attributes->set('api_token', $token);
