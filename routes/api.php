@@ -37,6 +37,7 @@ Route::middleware(['auth.api'])->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::post('/auth/switch-role', [AuthController::class, 'switchRole']);
+    Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
 
     Route::middleware(['active.role'])->group(function () {
         Route::get('/crm', [CrmController::class, 'index']);

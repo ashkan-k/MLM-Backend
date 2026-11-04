@@ -238,4 +238,34 @@ class AuthController extends Controller
 
         return response()->json(AuthUserPresenter::make($user->fresh('roles'), $role, $token));
     }
+
+    public function changePassword(Request $request)
+    {
+        $data = $request->validate([
+            'current_password' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password_confirmation' => ['required', 'string', 'min:8'],
+        ], [
+            'password.confirmed' => 'رمز عبور و تکرار آن یکسان نیستند.',
+            'password.min' => 'رمز عبور جدید باید حداقل ۸ کاراکتر باشد.',
+        ]);
+
+        $user = $request->user();
+        if (! Hash::check($data['current_password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['رمز عبور فعلی صحیح نیست.'],
+            ]);
+        }
+
+        if (Hash::check($data['password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'password' => ['رمز عبور جدید باید با رمز فعلی متفاوت باشد.'],
+            ]);
+        }
+
+        $user->password = $data['password'];
+        $user->save();
+
+        return response()->json(['ok' => true, 'message' => 'رمز عبور با موفقیت تغییر کرد.']);
+    }
 }

@@ -41,7 +41,7 @@ class PermissionCatalog
     {
         // فقط مواردی که باید از کاتالوگ همگام شوند؛ بقیه اکشن‌ها از Seeder می‌آیند.
         return [
-            'senior_manager.gateway.inspect' => ['name' => 'مدیر ارشد / تایید درگاه و ثبت کد مرچنت فاینوپال', 'roles' => ['senior_manager']],
+            'senior_manager.gateway.inspect' => ['name' => 'مدیر ارشد / تایید درگاه و ثبت کد مرچنت فینونت', 'roles' => ['senior_manager']],
         ];
     }
 
