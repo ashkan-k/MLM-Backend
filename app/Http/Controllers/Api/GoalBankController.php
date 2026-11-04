@@ -57,14 +57,15 @@ class GoalBankController extends Controller
     public function store(Request $request, GoalBankService $goals)
     {
         $data = $this->validatedItem($request);
-        $item = $goals->create($request->user(), $data);
+        $role = $request->attributes->get('active_role');
+        $item = $goals->create($request->user(), $data, $role);
 
         return response()->json(['item' => $goals->serialize($item)], 201);
     }
 
     public function importTemplate(Request $request, GoalBankService $goals)
     {
-        return $goals->downloadImportTemplate($request->user());
+        return $goals->downloadImportTemplate($request->user(), $request->attributes->get('active_role'));
     }
 
     public function import(Request $request, GoalBankService $goals)
@@ -73,7 +74,7 @@ class GoalBankController extends Controller
             'file' => ['required', 'file', 'max:20480'],
         ]);
 
-        $result = $goals->importFromUpload($request->user(), $data['file']);
+        $result = $goals->importFromUpload($request->user(), $data['file'], $request->attributes->get('active_role'));
 
         return response()->json([
             'imported' => $result['imported'],
@@ -88,14 +89,14 @@ class GoalBankController extends Controller
     public function update(Request $request, GoalBankItem $item, GoalBankService $goals)
     {
         $data = $this->validatedItem($request);
-        $item = $goals->update($request->user(), $item, $data);
+        $item = $goals->update($request->user(), $item, $data, $request->attributes->get('active_role'));
 
         return response()->json(['item' => $goals->serialize($item)]);
     }
 
     public function destroy(Request $request, GoalBankItem $item, GoalBankService $goals)
     {
-        $goals->delete($request->user(), $item);
+        $goals->delete($request->user(), $item, $request->attributes->get('active_role'));
 
         return response()->json(['ok' => true]);
     }
@@ -163,6 +164,7 @@ class GoalBankController extends Controller
             $data['search'] ?? null,
             (int) ($data['per_page'] ?? 20),
             (int) ($data['page'] ?? 1),
+            $request->attributes->get('active_role'),
         );
 
         return response()->json([
@@ -201,6 +203,7 @@ class GoalBankController extends Controller
             $touchLocation,
             $data['province'] ?? null,
             $data['city'] ?? null,
+            $request->attributes->get('active_role'),
         );
 
         $target = User::query()->find($row->user_id);
@@ -234,7 +237,7 @@ class GoalBankController extends Controller
         ]);
 
         return response()->json([
-            'stats' => $goals->userPartStats($request->user(), (int) $data['user_id']),
+            'stats' => $goals->userPartStats($request->user(), (int) $data['user_id'], $request->attributes->get('active_role')),
         ]);
     }
 

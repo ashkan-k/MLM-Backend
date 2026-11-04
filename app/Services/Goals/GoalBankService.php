@@ -25,14 +25,19 @@ class GoalBankService
         private readonly OrganizationTreeService $tree,
     ) {}
 
-    public function isManager(User $user): bool
+    public function isManager(User $user, ?Role $role = null): bool
     {
+        // نقش فعال معیار است تا با سوییچ به نماینده، دسترسی مدیریت نشت نکند.
+        if ($role) {
+            return in_array($role->slug, ['superuser', 'senior_manager'], true);
+        }
+
         return $user->isSuperuser() || $user->hasRole('senior_manager');
     }
 
-    public function assertManager(User $user): void
+    public function assertManager(User $user, ?Role $role = null): void
     {
-        if (! $this->isManager($user)) {
+        if (! $this->isManager($user, $role)) {
             abort(403, 'فقط مدیر ارشد و سوپریوزر به این بخش دسترسی دارند.');
         }
     }
@@ -69,7 +74,7 @@ class GoalBankService
         $access = $this->accessFor($user);
         $max = (int) ($access?->max_concurrent ?? self::DEFAULT_MAX_CONCURRENT);
 
-        if ($this->isManager($user)) {
+        if ($this->isManager($user, $role)) {
             $canReceive = $inProgress === 0;
 
             return [
@@ -105,7 +110,7 @@ class GoalBankService
 
     public function assertCanUse(User $user, ?Role $role): void
     {
-        if ($this->isManager($user)) {
+        if ($this->isManager($user, $role)) {
             return;
         }
         $state = $this->featureState($user, $role);
@@ -148,9 +153,9 @@ class GoalBankService
         ];
     }
 
-    public function listAccess(User $viewer, ?string $search = null, int $perPage = 20, int $page = 1): LengthAwarePaginator
+    public function listAccess(User $viewer, ?string $search = null, int $perPage = 20, int $page = 1, ?Role $role = null): LengthAwarePaginator
     {
-        $this->assertManager($viewer);
+        $this->assertManager($viewer, $role);
         $perPage = max(1, min(50, $perPage));
         $needle = $search !== null ? trim($search) : '';
 
@@ -264,8 +269,9 @@ class GoalBankService
         bool $touchLocation = false,
         ?string $province = null,
         ?string $city = null,
+        ?Role $actorRole = null,
     ): UserGoalBankAccess {
-        $this->assertManager($actor);
+        $this->assertManager($actor, $actorRole);
 
         if ($maxConcurrent < 1 || $maxConcurrent > 500) {
             throw ValidationException::withMessages(['max_concurrent' => 'تعداد مجاز هر نوبت باید بین ۱ تا ۵۰۰ باشد.']);
@@ -334,7 +340,7 @@ class GoalBankService
         ?int $claimedByUserId = null,
     ): LengthAwarePaginator {
         $this->assertCanUse($viewer, $role);
-        $isManager = $this->isManager($viewer);
+        $isManager = $this->isManager($viewer, $role);
 
         $query = GoalBankItem::query()
             ->with([
@@ -346,7 +352,7 @@ class GoalBankService
             ->orderByDesc('id');
 
         if ($claimedByUserId !== null) {
-            $this->assertManager($viewer);
+            $this->assertManager($viewer, $role);
             $target = User::query()->findOrFail($claimedByUserId);
             if (! $viewer->isSuperuser()) {
                 $allowed = $this->tree->descendantUserIds($viewer)->push($viewer->id)->all();
@@ -411,9 +417,9 @@ class GoalBankService
      *   success_rate: float|null
      * }
      */
-    public function userPartStats(User $viewer, int $claimedByUserId): array
+    public function userPartStats(User $viewer, int $claimedByUserId, ?Role $role = null): array
     {
-        $this->assertManager($viewer);
+        $this->assertManager($viewer, $role);
         $target = User::query()->findOrFail($claimedByUserId);
         if (! $viewer->isSuperuser()) {
             $allowed = $this->tree->descendantUserIds($viewer)->push($viewer->id)->all();
@@ -444,9 +450,9 @@ class GoalBankService
         ];
     }
 
-    public function create(User $actor, array $data): GoalBankItem
+    public function create(User $actor, array $data, ?Role $role = null): GoalBankItem
     {
-        $this->assertManager($actor);
+        $this->assertManager($actor, $role);
 
         return GoalBankItem::query()->create([
             ...$this->sanitizeFields($data),
@@ -455,9 +461,9 @@ class GoalBankService
         ]);
     }
 
-    public function update(User $actor, GoalBankItem $item, array $data): GoalBankItem
+    public function update(User $actor, GoalBankItem $item, array $data, ?Role $role = null): GoalBankItem
     {
-        $this->assertManager($actor);
+        $this->assertManager($actor, $role);
         if (! $item->isAvailable()) {
             throw ValidationException::withMessages(['item' => 'فقط آیتم‌های آزاد قابل ویرایش هستند.']);
         }
@@ -467,9 +473,9 @@ class GoalBankService
         return $item->fresh(['claimant', 'claimRole', 'creator']);
     }
 
-    public function delete(User $actor, GoalBankItem $item): void
+    public function delete(User $actor, GoalBankItem $item, ?Role $role = null): void
     {
-        $this->assertManager($actor);
+        $this->assertManager($actor, $role);
         if (! $item->isAvailable()) {
             throw ValidationException::withMessages(['item' => 'فقط آیتم‌های آزاد قابل حذف هستند.']);
         }
@@ -491,9 +497,9 @@ class GoalBankService
 
     public const IMPORT_MAX_ROWS = 15000;
 
-    public function downloadImportTemplate(User $actor): BinaryFileResponse
+    public function downloadImportTemplate(User $actor, ?Role $role = null): BinaryFileResponse
     {
-        $this->assertManager($actor);
+        $this->assertManager($actor, $role);
 
         $path = storage_path('app/goal-bank-import-sample.xlsx');
         $dir = dirname($path);
@@ -516,9 +522,9 @@ class GoalBankService
     /**
      * @return array{imported: int, skipped: int, errors: list<string>}
      */
-    public function importFromUpload(User $actor, UploadedFile $file): array
+    public function importFromUpload(User $actor, UploadedFile $file, ?Role $role = null): array
     {
-        $this->assertManager($actor);
+        $this->assertManager($actor, $role);
 
         $ext = strtolower($file->getClientOriginalExtension() ?: '');
         if (! in_array($ext, ['xlsx', 'csv', 'txt'], true)) {
@@ -700,7 +706,7 @@ class GoalBankService
             }
 
             $access = $this->accessFor($actor);
-            if (! $this->isManager($actor) && ! ($access?->enabled)) {
+            if (! $this->isManager($actor, $role) && ! ($access?->enabled)) {
                 abort(403, 'دسترسی بانک اهداف برای شما فعال نشده است.');
             }
 
@@ -786,13 +792,13 @@ class GoalBankService
     ): GoalBankItem {
         $this->assertCanUse($actor, $role);
 
-        return DB::transaction(function () use ($actor, $item, $status, $workReport, $failureReason) {
+        return DB::transaction(function () use ($actor, $role, $item, $status, $workReport, $failureReason) {
             $locked = GoalBankItem::query()->whereKey($item->id)->lockForUpdate()->firstOrFail();
             if (! $locked->isInProgress()) {
                 throw ValidationException::withMessages(['item' => 'فقط پارت‌های در حال انجام قابل تعیین‌تکلیف هستند.']);
             }
             $isOwner = (int) $locked->claimed_by_user_id === (int) $actor->id;
-            if (! $isOwner && ! $this->isManager($actor)) {
+            if (! $isOwner && ! $this->isManager($actor, $role)) {
                 abort(403, 'فقط گیرندهٔ پارت می‌تواند آن را تعیین‌تکلیف کند.');
             }
 

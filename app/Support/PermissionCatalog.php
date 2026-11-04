@@ -29,12 +29,14 @@ class PermissionCatalog
             'page.courses_manage' => ['name' => 'مدیریت دوره‌ها و سطوح', 'roles' => ['senior_manager']],
             'page.chat' => ['name' => 'صفحه گفتگو', 'roles' => '*'],
             'page.notifications' => ['name' => 'صفحه اعلان‌ها', 'roles' => '*'],
+            'page.goals_bank' => ['name' => 'صفحه بانک اهداف', 'roles' => '*'],
         ];
     }
 
     /** @return array<string, array{name: string, roles: '*'|list<string>}> */
     public static function actionPermissions(): array
     {
+        // فقط مواردی که باید از کاتالوگ همگام شوند؛ بقیه اکشن‌ها از Seeder می‌آیند.
         return [
             'senior_manager.gateway.inspect' => ['name' => 'مدیر ارشد / تایید درگاه و ثبت کد مرچنت فاینوپال', 'roles' => ['senior_manager']],
         ];
