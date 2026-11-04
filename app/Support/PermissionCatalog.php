@@ -30,6 +30,9 @@ class PermissionCatalog
             'page.chat' => ['name' => 'صفحه گفتگو', 'roles' => '*'],
             'page.notifications' => ['name' => 'صفحه اعلان‌ها', 'roles' => '*'],
             'page.goals_bank' => ['name' => 'صفحه بانک اهداف', 'roles' => '*'],
+            'page.crm' => ['name' => 'صفحه CRM (فعالیت‌ها و کارها)', 'roles' => '*'],
+            'page.org_managers' => ['name' => 'صفحه مدیران سازمان', 'roles' => ['senior_manager']],
+            'page.bonus_default' => ['name' => 'صفحه پاداش پیش‌فرض', 'roles' => ['senior_manager']],
         ];
     }
 

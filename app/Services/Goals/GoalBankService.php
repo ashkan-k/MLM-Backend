@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\UserGoalBankAccess;
 use App\Services\Organization\OrganizationTreeService;
+use App\Services\Authorization\PermissionService;
 use App\Support\GoalBankGeo;
 use App\Support\SimpleSpreadsheet;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -39,6 +40,17 @@ class GoalBankService
     {
         if (! $this->isManager($user, $role)) {
             abort(403, 'فقط مدیر ارشد و سوپریوزر به این بخش دسترسی دارند.');
+        }
+        $this->assertPagePermission($user, $role);
+    }
+
+    private function assertPagePermission(User $user, ?Role $role = null): void
+    {
+        if ($user->isSuperuser()) {
+            return;
+        }
+        if (! app(PermissionService::class)->can($user, 'page.goals_bank', $role)) {
+            abort(403, 'دسترسی صفحه بانک اهداف برای نقش شما غیرفعال است.');
         }
     }
 
@@ -110,6 +122,7 @@ class GoalBankService
 
     public function assertCanUse(User $user, ?Role $role): void
     {
+        $this->assertPagePermission($user, $role);
         if ($this->isManager($user, $role)) {
             return;
         }
