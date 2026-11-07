@@ -96,4 +96,43 @@ class CatalogProductTest extends TestCase
             'code' => 100,
         ], ['X-Finopal-Webhook-Secret' => 'test-webhook-secret'])->assertStatus(422);
     }
+
+    public function test_public_catalog_lists_active_products_without_auth(): void
+    {
+        CatalogProduct::query()->create([
+            'type' => 'landing_extra',
+            'label' => 'محصول لندینگ',
+            'requires_merchant' => false,
+            'requires_owner' => true,
+            'sale_points' => 3,
+            'default_code' => 'LANDING',
+            'signup_url' => 'https://example.com/landing-extra',
+            'is_system' => false,
+            'is_active' => true,
+            'sort_order' => 99,
+        ]);
+        CatalogProduct::query()->create([
+            'type' => 'landing_hidden',
+            'label' => 'غیرفعال',
+            'requires_merchant' => false,
+            'requires_owner' => true,
+            'sale_points' => 0,
+            'is_system' => false,
+            'is_active' => false,
+            'sort_order' => 100,
+        ]);
+
+        $res = $this->getJson('/api/public/catalog/products')->assertOk();
+        $res->assertJsonFragment([
+            'type' => 'landing_extra',
+            'label' => 'محصول لندینگ',
+            'default_code' => 'LANDING',
+            'signup_url' => 'https://example.com/landing-extra',
+        ]);
+        $res->assertJsonFragment(['type' => 'ghalebazar']);
+        $types = collect($res->json())->pluck('type')->all();
+        $this->assertNotContains('landing_hidden', $types);
+        $this->assertNotContains('monthly_bonus_residual', $types);
+        $this->assertArrayNotHasKey('aliases', $res->json()[0] ?? []);
+    }
 }

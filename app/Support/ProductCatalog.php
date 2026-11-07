@@ -88,6 +88,36 @@ class ProductCatalog
         return $out;
     }
 
+    /**
+     * Public landing catalog: active products only, no internal residual types.
+     *
+     * @return list<array{type:string,label:string,default_code:?string,signup_url:?string,requires_merchant:bool,sale_points:int}>
+     */
+    public static function publicListing(): array
+    {
+        $hidden = ['monthly_bonus_residual'];
+        $out = [];
+        foreach (self::rows() as $row) {
+            if (! $row['is_active'] || in_array($row['type'], $hidden, true)) {
+                continue;
+            }
+            $out[] = [
+                'type' => $row['type'],
+                'label' => $row['label'],
+                'default_code' => $row['default_code'] !== null && $row['default_code'] !== ''
+                    ? (string) $row['default_code']
+                    : null,
+                'signup_url' => $row['signup_url'] !== null && trim((string) $row['signup_url']) !== ''
+                    ? (string) $row['signup_url']
+                    : null,
+                'requires_merchant' => (bool) $row['requires_merchant'],
+                'sale_points' => (int) $row['sale_points'],
+            ];
+        }
+
+        return $out;
+    }
+
     /** @return list<array<string, mixed>> */
     public static function signupDefinitions(): array
     {

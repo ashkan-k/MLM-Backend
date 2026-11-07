@@ -18,6 +18,12 @@ class CatalogProductController extends Controller
         return response()->json(ProductCatalog::options());
     }
 
+    /** Active catalog for public landing (no auth). Hides internal residual types. */
+    public function publicIndex()
+    {
+        return response()->json(ProductCatalog::publicListing());
+    }
+
     public function index()
     {
         return response()->json(
