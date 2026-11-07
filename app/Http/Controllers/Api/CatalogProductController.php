@@ -79,13 +79,14 @@ class CatalogProductController extends Controller
                 'regex:/^[a-z][a-z0-9_]*$/',
                 Rule::unique('catalog_products', 'type')->ignore($current?->id),
             ],
-            'label' => ['required', 'string', 'max:120'],
-            'description' => ['nullable', 'string', 'max:500'],
+            'label' => ['required', 'string', 'max:180'],
+            'description' => ['nullable', 'string', 'max:2000'],
             'requires_merchant' => ['boolean'],
             'sale_points' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'default_code' => ['nullable', 'string', 'max:120'],
             'signup_url' => ['nullable', 'string', 'max:255'],
             'aliases' => ['nullable', 'string', 'max:255'],
+            'sort_order' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'is_active' => ['boolean'],
         ], [
             'type.required' => 'شناسه محصول الزامی است.',
@@ -101,7 +102,7 @@ class CatalogProductController extends Controller
         }
         $aliases = $this->aliases($data['aliases'] ?? '', (string) $data['type'], $current?->id);
 
-        return [
+        $out = [
             'type' => $data['type'],
             'label' => trim($data['label']),
             'description' => $this->blank($data['description'] ?? null),
@@ -113,6 +114,11 @@ class CatalogProductController extends Controller
             'aliases' => $aliases !== '' ? $aliases : null,
             'is_active' => $request->boolean('is_active', true),
         ];
+        if (array_key_exists('sort_order', $data) && $data['sort_order'] !== null) {
+            $out['sort_order'] = (int) $data['sort_order'];
+        }
+
+        return $out;
     }
 
     private function aliases(string $raw, string $type, ?int $ignoreId): string

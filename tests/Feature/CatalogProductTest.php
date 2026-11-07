@@ -36,7 +36,7 @@ class CatalogProductTest extends TestCase
 
         $this->withToken($token)->getJson('/api/superuser/products')
             ->assertOk()
-            ->assertJsonFragment(['type' => 'ghalebazar', 'label' => 'قالب بازار']);
+            ->assertJsonFragment(['type' => 'ghalebazar', 'label' => 'قالب‌بازار | بازار تخصصی قالب‌های آماده وب‌سایت']);
 
         $this->withToken($token)->postJson('/api/superuser/products', [
             'type' => 'qa_demo',
@@ -44,8 +44,24 @@ class CatalogProductTest extends TestCase
             'requires_merchant' => false,
             'signup_url' => 'https://example.com/join',
             'default_code' => 'QA-DEMO',
+            'sort_order' => 15,
             'is_active' => true,
-        ])->assertCreated()->assertJsonPath('type', 'qa_demo');
+        ])->assertCreated()
+            ->assertJsonPath('type', 'qa_demo')
+            ->assertJsonPath('sort_order', 15);
+
+        $gateway = CatalogProduct::query()->where('type', 'gateway_profit')->firstOrFail();
+        $this->withToken($token)->putJson('/api/superuser/products/'.$gateway->id, [
+            'type' => $gateway->type,
+            'label' => $gateway->label,
+            'requires_merchant' => $gateway->requires_merchant,
+            'sale_points' => $gateway->sale_points,
+            'default_code' => $gateway->default_code,
+            'signup_url' => $gateway->signup_url,
+            'aliases' => $gateway->aliases,
+            'is_active' => $gateway->is_active,
+            'sort_order' => 5,
+        ])->assertOk()->assertJsonPath('sort_order', 5);
 
         $this->withToken($repToken)->getJson('/api/catalog/products')
             ->assertOk()

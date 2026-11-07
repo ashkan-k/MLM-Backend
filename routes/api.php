@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BenefitTransferController;
 use App\Http\Controllers\Api\CatalogProductController;
+use App\Http\Controllers\Api\PublicCommissionController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\CrmController;
 use App\Http\Controllers\Api\DashboardController;
@@ -28,6 +29,7 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::get('/shared-links/token/{token}', [ReferralController::class, 'showByToken']);
 Route::get('/public/catalog/products', [CatalogProductController::class, 'publicIndex']);
+Route::get('/public/commission-rates', [PublicCommissionController::class, 'rates']);
 Route::post('/webhooks/frasoft', [SuperuserController::class, 'frasoftWebhook']);
 Route::post('/webhooks/finopal/transaction', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'transaction']);
 Route::post('/webhooks/finopal/org-structure', [\App\Http\Controllers\Api\FinopalWebhookController::class, 'orgStructure']);

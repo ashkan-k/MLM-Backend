@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('catalog_products', function (Blueprint $table) {
-            $table->string('description', 500)->nullable()->after('label');
+            $table->text('description')->nullable()->after('label');
         });
     }
 
