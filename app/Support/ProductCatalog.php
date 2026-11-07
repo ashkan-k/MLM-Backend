@@ -91,7 +91,7 @@ class ProductCatalog
     /**
      * Public landing catalog: active products only, no internal residual types.
      *
-     * @return list<array{type:string,label:string,default_code:?string,signup_url:?string,requires_merchant:bool,sale_points:int}>
+     * @return list<array{type:string,label:string,description:?string,default_code:?string,signup_url:?string,requires_merchant:bool,sale_points:int}>
      */
     public static function publicListing(): array
     {
@@ -101,9 +101,11 @@ class ProductCatalog
             if (! $row['is_active'] || in_array($row['type'], $hidden, true)) {
                 continue;
             }
+            $description = trim((string) ($row['description'] ?? ''));
             $out[] = [
                 'type' => $row['type'],
                 'label' => $row['label'],
+                'description' => $description !== '' ? $description : null,
                 'default_code' => $row['default_code'] !== null && $row['default_code'] !== ''
                     ? (string) $row['default_code']
                     : null,
@@ -146,6 +148,7 @@ class ProductCatalog
 
             return $stored->map(fn (CatalogProduct $product) => self::shape($product->type, [
                 'label' => $product->label,
+                'description' => $product->description,
                 'requires_merchant' => $product->requires_merchant,
                 'requires_owner' => $product->requires_owner,
                 'sale_points' => $product->sale_points,
@@ -181,9 +184,12 @@ class ProductCatalog
     /** @param  array<string, mixed>  $cfg */
     private static function shape(string $type, array $cfg): array
     {
+        $description = trim((string) ($cfg['description'] ?? ''));
+
         return [
             'type' => $type,
             'label' => (string) ($cfg['label'] ?? $type),
+            'description' => $description !== '' ? $description : null,
             'requires_merchant' => (bool) ($cfg['requires_merchant'] ?? false),
             'requires_owner' => (bool) ($cfg['requires_owner'] ?? true),
             'sale_points' => (int) ($cfg['sale_points'] ?? 0),

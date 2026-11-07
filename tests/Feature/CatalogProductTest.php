@@ -102,6 +102,7 @@ class CatalogProductTest extends TestCase
         CatalogProduct::query()->create([
             'type' => 'landing_extra',
             'label' => 'محصول لندینگ',
+            'description' => 'توضیح کارت لندینگ',
             'requires_merchant' => false,
             'requires_owner' => true,
             'sale_points' => 3,
@@ -126,6 +127,7 @@ class CatalogProductTest extends TestCase
         $res->assertJsonFragment([
             'type' => 'landing_extra',
             'label' => 'محصول لندینگ',
+            'description' => 'توضیح کارت لندینگ',
             'default_code' => 'LANDING',
             'signup_url' => 'https://example.com/landing-extra',
         ]);

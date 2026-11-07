@@ -80,6 +80,7 @@ class CatalogProductController extends Controller
                 Rule::unique('catalog_products', 'type')->ignore($current?->id),
             ],
             'label' => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:500'],
             'requires_merchant' => ['boolean'],
             'sale_points' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'default_code' => ['nullable', 'string', 'max:120'],
@@ -103,6 +104,7 @@ class CatalogProductController extends Controller
         return [
             'type' => $data['type'],
             'label' => trim($data['label']),
+            'description' => $this->blank($data['description'] ?? null),
             'requires_merchant' => $merchant,
             'requires_owner' => ! $merchant,
             'sale_points' => (int) ($data['sale_points'] ?? 0),

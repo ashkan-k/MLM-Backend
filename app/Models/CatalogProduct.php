@@ -10,6 +10,7 @@ class CatalogProduct extends Model
     protected $fillable = [
         'type',
         'label',
+        'description',
         'requires_merchant',
         'requires_owner',
         'sale_points',
