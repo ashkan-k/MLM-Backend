@@ -31,6 +31,18 @@ return [
     ),
 
     /*
+    | قالب پیامک اشتراک لینک معرف/فروش.
+    | برای جلوگیری از بلاک مخابرات می‌توان بعداً SMS_SHARE_LINK_TEMPLATE_ID را
+    | روی شناسه قالب سامانه‌ای گذاشت و ارسال را به pattern API سوییچ کرد.
+    */
+    'share_link_template' => env(
+        'SMS_SHARE_LINK_TEMPLATE',
+        "دعوت به سازمان فروش فینونت\nلینک شما:\n{link}"
+    ),
+    'share_link_template_id' => env('SMS_SHARE_LINK_TEMPLATE_ID', ''),
+    'share_link_max_per_hour' => (int) env('SMS_SHARE_LINK_MAX_PER_HOUR', 15),
+
+    /*
     | ترتیب امتحان سامانه‌ها برای متن آزاد / خوش‌آمد.
     | اگر خالی باشد از SMS_DRIVER ساخته می‌شود.
     */

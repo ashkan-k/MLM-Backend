@@ -105,6 +105,7 @@ Route::middleware(['auth.api'])->group(function () {
 
         Route::get('/referrals/codes', [ReferralController::class, 'codes']);
         Route::get('/referrals', [ReferralController::class, 'referrals']);
+        Route::post('/referrals/share-sms', [ReferralController::class, 'shareSms']);
         Route::get('/shared-links', [ReferralController::class, 'sharedLinks']);
         Route::get('/shared-links/partners', [ReferralController::class, 'partners']);
         Route::post('/shared-links', [ReferralController::class, 'createSharedLink']);

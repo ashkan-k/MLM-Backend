@@ -194,6 +194,7 @@ class SmsService
         return match ($type) {
             'org_sync_welcome' => 'خوش‌آمد سینک سازمانی',
             'dashboard_test' => 'تست داشبورد',
+            'share_link' => 'اشتراک لینک معرف/فروش',
             'text' => 'متن آزاد',
             default => $type ?: 'نامشخص',
         };
