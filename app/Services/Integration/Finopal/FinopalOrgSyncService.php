@@ -52,102 +52,100 @@ class FinopalOrgSyncService
             throw new RuntimeException('فیلد MLM_Structure الزامی است.');
         }
 
-        return DB::transaction(function () use ($structure) {
-            $created = [];
-            $skipped = [];
-            $errors = [];
-            $welcomeQueue = [];
+        // Per-slot transactions + locks (not one long outer transaction) so concurrent
+        // webhooks do not hold DB connections while waiting on cache locks, and a late
+        // failure cannot roll back earlier successful creates.
+        $created = [];
+        $skipped = [];
+        $errors = [];
+        $welcomeQueue = [];
 
-            $seniorRole = Role::query()->where('slug', 'senior_manager')->firstOrFail();
-            $dmRole = Role::query()->where('slug', 'development_manager')->firstOrFail();
-            $smRole = Role::query()->where('slug', 'sales_manager')->firstOrFail();
-            $repRole = Role::query()->where('slug', 'representative')->firstOrFail();
+        $seniorRole = Role::query()->where('slug', 'senior_manager')->firstOrFail();
+        $dmRole = Role::query()->where('slug', 'development_manager')->firstOrFail();
+        $smRole = Role::query()->where('slug', 'sales_manager')->firstOrFail();
+        $repRole = Role::query()->where('slug', 'representative')->firstOrFail();
 
-            $seniorNode = $this->upsertSlot(
-                $structure['Senior'] ?? $structure['senior'] ?? null,
-                'Senior',
-                $seniorRole,
-                null,
-                $created,
-                $skipped,
-                $errors,
-                $welcomeQueue,
-            );
+        $seniorNode = $this->upsertSlot(
+            $structure['Senior'] ?? $structure['senior'] ?? null,
+            'Senior',
+            $seniorRole,
+            null,
+            $created,
+            $skipped,
+            $errors,
+            $welcomeQueue,
+        );
 
-            $dmParent = $seniorNode;
-            $dmNode = $this->upsertSlot(
-                $structure['DM'] ?? $structure['dm'] ?? null,
-                'DM',
-                $dmRole,
-                $dmParent,
-                $created,
-                $skipped,
-                $errors,
-                $welcomeQueue,
-            );
+        $dmParent = $seniorNode;
+        $dmNode = $this->upsertSlot(
+            $structure['DM'] ?? $structure['dm'] ?? null,
+            'DM',
+            $dmRole,
+            $dmParent,
+            $created,
+            $skipped,
+            $errors,
+            $welcomeQueue,
+        );
 
-            $smParent = $dmNode ?? $seniorNode;
-            $smNode = $this->upsertSlot(
-                $structure['SM'] ?? $structure['sm'] ?? null,
-                'SM',
-                $smRole,
-                $smParent,
-                $created,
-                $skipped,
-                $errors,
-                $welcomeQueue,
-            );
+        $smParent = $dmNode ?? $seniorNode;
+        $smNode = $this->upsertSlot(
+            $structure['SM'] ?? $structure['sm'] ?? null,
+            'SM',
+            $smRole,
+            $smParent,
+            $created,
+            $skipped,
+            $errors,
+            $welcomeQueue,
+        );
 
-            $repParent = $smNode ?? $dmNode ?? $seniorNode;
-            $repsRaw = $structure['REPS'] ?? $structure['reps'] ?? null;
-            $reps = $this->normalizeReps($repsRaw);
+        $repParent = $smNode ?? $dmNode ?? $seniorNode;
+        $repsRaw = $structure['REPS'] ?? $structure['reps'] ?? null;
+        $reps = $this->normalizeReps($repsRaw);
 
-            if ($reps === [] && $repsRaw !== null) {
-                $errors[] = [
-                    'slot' => 'REPS',
-                    'message' => 'ساختار REPS نامعتبر است (باید object یا array از نمایندگان باشد).',
-                ];
-            }
-
-            foreach ($reps as $index => $rep) {
-                $slot = count($reps) > 1 ? 'REPS['.$index.']' : 'REPS';
-                $this->upsertSlot(
-                    $rep,
-                    $slot,
-                    $repRole,
-                    $repParent,
-                    $created,
-                    $skipped,
-                    $errors,
-                    $welcomeQueue,
-                    true,
-                );
-            }
-
-            if ($welcomeQueue !== []) {
-                $sms = $this->sms;
-                DB::afterCommit(function () use ($welcomeQueue, $sms) {
-                    foreach ($welcomeQueue as $row) {
-                        $sms->sendWelcome($row['user'], $row['password'], $row['role']);
-                    }
-                });
-            }
-
-            return [
-                'created' => $created,
-                'skipped' => $skipped,
-                'errors' => $errors,
-                'sms_queued' => count($welcomeQueue),
-                'structure' => [
-                    'senior_node_id' => $seniorNode?->id,
-                    'dm_node_id' => $dmNode?->id,
-                    'sm_node_id' => $smNode?->id,
-                    'reps_parent_node_id' => $repParent?->id,
-                    'reps_count' => count($reps),
-                    'shared' => count($reps) > 1,
-                ],
+        if ($reps === [] && $repsRaw !== null) {
+            $errors[] = [
+                'slot' => 'REPS',
+                'message' => 'ساختار REPS نامعتبر است (باید object یا array از نمایندگان باشد).',
             ];
-        });
+        }
+
+        foreach ($reps as $index => $rep) {
+            $slot = count($reps) > 1 ? 'REPS['.$index.']' : 'REPS';
+            $this->upsertSlot(
+                $rep,
+                $slot,
+                $repRole,
+                $repParent,
+                $created,
+                $skipped,
+                $errors,
+                $welcomeQueue,
+                true,
+            );
+        }
+
+        if ($welcomeQueue !== []) {
+            foreach ($welcomeQueue as $row) {
+                $this->sms->sendWelcome($row['user'], $row['password'], $row['role']);
+            }
+        }
+
+        return [
+            'created' => $created,
+            'skipped' => $skipped,
+            'errors' => $errors,
+            'sms_queued' => count($welcomeQueue),
+            'structure' => [
+                'senior_node_id' => $seniorNode?->id,
+                'dm_node_id' => $dmNode?->id,
+                'sm_node_id' => $smNode?->id,
+                'reps_parent_node_id' => $repParent?->id,
+                'reps_count' => count($reps),
+                'shared' => count($reps) > 1,
+            ],
+        ];
     }
 
     /**
@@ -198,17 +196,29 @@ class FinopalOrgSyncService
                 &$welcomeQueue,
                 $isRep,
             ) {
-                return $this->upsertSlotLocked(
+                return DB::transaction(function () use (
                     $person,
                     $slot,
                     $role,
                     $parent,
-                    $created,
-                    $skipped,
-                    $errors,
-                    $welcomeQueue,
+                    &$created,
+                    &$skipped,
+                    &$errors,
+                    &$welcomeQueue,
                     $isRep,
-                );
+                ) {
+                    return $this->upsertSlotLocked(
+                        $person,
+                        $slot,
+                        $role,
+                        $parent,
+                        $created,
+                        $skipped,
+                        $errors,
+                        $welcomeQueue,
+                        $isRep,
+                    );
+                });
             });
         } catch (RuntimeException $e) {
             $errors[] = [
@@ -299,7 +309,14 @@ class FinopalOrgSyncService
 
             $node = $this->ensureRoleAndNode($user, $role, $parent, true);
         } catch (QueryException $e) {
-            if (UniqueConstraint::violated($e)) {
+            if (UniqueConstraint::violatedOn($e, [
+                'users_national_id_unique',
+                'users_mobile_unique',
+                'users_farasof_user_id_unique',
+                'national_id',
+                'mobile',
+                'farasof_user_id',
+            ])) {
                 $existing = User::query()->where('national_id', $person['national_id'])->first()
                     ?? User::query()->where('mobile', $person['mobile'])->first();
                 $errors[] = [
@@ -324,15 +341,8 @@ class FinopalOrgSyncService
             return null;
         }
 
-        if ($isRep) {
-            ReferralCode::query()->firstOrCreate(
-                ['user_id' => $user->id],
-                [
-                    'code' => ReferralCodeGenerator::unique(),
-                    'source' => 'finopal_org_sync',
-                    'is_active' => true,
-                ]
-            );
+        if ($isRep && ! ReferralCode::query()->where('user_id', $user->id)->exists()) {
+            $this->createReferralCodeWithRetry($user->id, 'finopal_org_sync');
         }
 
         $welcomeQueue[] = [
@@ -497,6 +507,27 @@ class FinopalOrgSyncService
     private function normalizeDate(string $value): ?string
     {
         return JalaliDate::store($value);
+    }
+
+    private function createReferralCodeWithRetry(int $userId, string $source): void
+    {
+        $attempts = 0;
+        while (true) {
+            try {
+                ReferralCode::query()->create([
+                    'user_id' => $userId,
+                    'code' => ReferralCodeGenerator::unique(),
+                    'source' => $source,
+                    'is_active' => true,
+                ]);
+
+                return;
+            } catch (QueryException $e) {
+                if (! UniqueConstraint::violated($e) || ++$attempts >= 12) {
+                    throw $e;
+                }
+            }
+        }
     }
 
     private function digits(string $value): string

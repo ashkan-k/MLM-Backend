@@ -21,4 +21,26 @@ final class UniqueConstraint
         return str_contains($message, 'unique')
             || str_contains($message, 'duplicate');
     }
+
+    /**
+     * True when the unique violation is on one of the given column/index needles.
+     * Prevents treating unrelated uniques (e.g. referral_codes.code) as "user exists".
+     *
+     * @param  list<string>  $needles
+     */
+    public static function violatedOn(QueryException $e, array $needles): bool
+    {
+        if (! self::violated($e)) {
+            return false;
+        }
+
+        $message = strtolower($e->getMessage());
+        foreach ($needles as $needle) {
+            if ($needle !== '' && str_contains($message, strtolower($needle))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

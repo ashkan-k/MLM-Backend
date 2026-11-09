@@ -34,7 +34,7 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
-        <env name="FINOPAL_WEBHOOK_SECRET" value="test-webhook-secret"/>
+        <env name="FINOPAL_WEBHOOK_SECRET" value="test-webhook-secret" force="true"/>
         <env name="FINOPAL_VIP_SYNC" value="false" force="true"/>
     </php>
 </phpunit>

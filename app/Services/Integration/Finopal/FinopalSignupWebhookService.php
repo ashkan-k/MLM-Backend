@@ -68,7 +68,16 @@ class FinopalSignupWebhookService
                         $mobile,
                     );
                 } catch (QueryException $e) {
-                    if (UniqueConstraint::violated($e)) {
+                    // Only identity uniques mean "already registered".
+                    // Other uniques (referral code, email, …) must not wipe the create.
+                    if (UniqueConstraint::violatedOn($e, [
+                        'users_national_id_unique',
+                        'users_mobile_unique',
+                        'users_farasof_user_id_unique',
+                        'national_id',
+                        'mobile',
+                        'farasof_user_id',
+                    ])) {
                         throw ValidationException::withMessages([
                             'user' => 'این کاربر قبلاً ثبت شده است.',
                         ]);
@@ -349,12 +358,7 @@ class FinopalSignupWebhookService
         ]);
         $this->wallets->walletFor($user, $repRole);
 
-        ReferralCode::query()->create([
-            'user_id' => $user->id,
-            'code' => ReferralCodeGenerator::unique(),
-            'source' => 'finopal',
-            'is_active' => true,
-        ]);
+        $this->createReferralCodeWithRetry($user->id, 'finopal');
 
         $codeId = ReferralCode::query()->where('user_id', $referrer->id)->where('is_active', true)->value('id');
         RepresentativeReferral::query()->create([
@@ -393,9 +397,37 @@ class FinopalSignupWebhookService
         ];
     }
 
+    private function createReferralCodeWithRetry(int $userId, string $source): void
+    {
+        $attempts = 0;
+        while (true) {
+            try {
+                ReferralCode::query()->create([
+                    'user_id' => $userId,
+                    'code' => ReferralCodeGenerator::unique(),
+                    'source' => $source,
+                    'is_active' => true,
+                ]);
+
+                return;
+            } catch (QueryException $e) {
+                if (! UniqueConstraint::violated($e) || ++$attempts >= 12) {
+                    throw $e;
+                }
+            }
+        }
+    }
+
     private function digits(string $value): string
     {
-        return preg_replace('/\D+/', '', $value) ?? '';
+        $map = [
+            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+            '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+        ];
+
+        return preg_replace('/\D+/', '', strtr($value, $map)) ?? '';
     }
 
     private function mobile(string $value): string

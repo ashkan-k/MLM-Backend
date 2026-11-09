@@ -4,6 +4,7 @@ use App\Http\Middleware\AuthenticateApiToken;
 use App\Http\Middleware\EnsureActiveRole;
 use App\Http\Middleware\EnsureCourseManager;
 use App\Http\Middleware\EnsureSuperuser;
+use App\Services\Audit\AuditService;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -48,6 +49,26 @@ return Application::configure(basePath: dirname(__DIR__))
             }
             if ($request->expectsJson() || $request->is('api/*')) {
                 return response()->json(['message' => $e->getMessage()], 422);
+            }
+        });
+
+        $exceptions->report(function (\Throwable $e) {
+            try {
+                $request = request();
+                if (! $request || ! ($request->is('api/*') || $request->expectsJson())) {
+                    return;
+                }
+                if ($e instanceof ValidationException) {
+                    return;
+                }
+                app(AuditService::class)->record($request->user(), 'api.error', 'system', null, [
+                    'path' => '/'.$request->path(),
+                    'method' => $request->method(),
+                    'exception' => class_basename($e),
+                    'message' => mb_substr($e->getMessage(), 0, 500),
+                ]);
+            } catch (\Throwable) {
+                // ignore audit failures while reporting
             }
         });
     })->create();
