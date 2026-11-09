@@ -51,7 +51,9 @@ class FinopalSignupWebhookService
 
         return $this->withIdentityLock($lockKey, function () use ($data, $userInput, $nationalId, $mobile) {
             return DB::transaction(function () use ($data, $userInput, $nationalId, $mobile) {
-                $existing = $this->findUserForUpdate($userInput);
+                // Avoid SELECT ... FOR UPDATE here: under concurrency it gap-locks the
+                // users index and serializes unrelated inserts (slow + timeouts).
+                $existing = $this->findUser($userInput);
                 if ($existing) {
                     throw ValidationException::withMessages([
                         'user' => 'این کاربر قبلاً ثبت شده است.',
@@ -74,9 +76,9 @@ class FinopalSignupWebhookService
                         'users_national_id_unique',
                         'users_mobile_unique',
                         'users_farasof_user_id_unique',
-                        'national_id',
-                        'mobile',
-                        'farasof_user_id',
+                        'users.national_id',
+                        'users.mobile',
+                        'users.farasof_user_id',
                     ])) {
                         throw ValidationException::withMessages([
                             'user' => 'این کاربر قبلاً ثبت شده است.',
@@ -219,14 +221,6 @@ class FinopalSignupWebhookService
     /**
      * @param  array<string, mixed>  $userInput
      */
-    private function findUserForUpdate(array $userInput): ?User
-    {
-        return $this->findUserQuery($userInput)->lockForUpdate()->first();
-    }
-
-    /**
-     * @param  array<string, mixed>  $userInput
-     */
     private function findUserQuery(array $userInput): \Illuminate\Database\Eloquent\Builder
     {
         $nationalId = $this->digits((string) ($userInput['national_id'] ?? ''));
@@ -266,7 +260,7 @@ class FinopalSignupWebhookService
         }
 
         try {
-            return $lock->block(20, $callback);
+            return $lock->block(8, $callback);
         } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
             throw ValidationException::withMessages([
                 'user' => 'درخواست هم‌زمان برای این کاربر در حال پردازش است. کمی بعد دوباره تلاش کنید.',
@@ -370,11 +364,17 @@ class FinopalSignupWebhookService
 
         $referrerRole = Role::query()->where('slug', 'representative_referrer')->first();
         if ($referrerRole && ! $referrer->hasRole('representative_referrer')) {
-            UserRole::query()->firstOrCreate(
-                ['user_id' => $referrer->id, 'role_id' => $referrerRole->id],
-                ['effective_from' => now()->toDateString(), 'is_active' => true]
-            );
-            $this->wallets->walletFor($referrer, $referrerRole);
+            try {
+                UserRole::query()->firstOrCreate(
+                    ['user_id' => $referrer->id, 'role_id' => $referrerRole->id],
+                    ['effective_from' => now()->toDateString(), 'is_active' => true]
+                );
+                $this->wallets->walletFor($referrer, $referrerRole);
+            } catch (QueryException $e) {
+                if (! UniqueConstraint::violated($e)) {
+                    throw $e;
+                }
+            }
         }
 
         $parent = $this->tree->registrationParentFor($referrer);

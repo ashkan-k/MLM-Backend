@@ -33,8 +33,9 @@ class FinopalWebhookAuditor
 
     /**
      * @param  array<string, mixed>|null  $payload
+     * @param  array<string, mixed>  $extra
      */
-    public function fromResponse(string $endpoint, Request $request, Response $response, ?array $payload = null): void
+    public function fromResponse(string $endpoint, Request $request, Response $response, ?array $payload = null, array $extra = []): void
     {
         $status = $response->getStatusCode();
         $body = null;
@@ -52,7 +53,7 @@ class FinopalWebhookAuditor
         $userId = $body['user_id'] ?? null;
         $user = is_numeric($userId) ? User::query()->find((int) $userId) : null;
 
-        $this->safeRecord($action, $user ?? 'finopal_webhook', $this->safeRequestSummary($request, $payload), [
+        $this->safeRecord($action, $user ?? 'finopal_webhook', $this->safeRequestSummary($request, $payload), array_filter([
             'http_status' => $status,
             'success' => $ok,
             'message' => $body['message'] ?? null,
@@ -64,7 +65,11 @@ class FinopalWebhookAuditor
             'referral_code' => $this->shortRef((string) $request->input('referral_code', '')),
             'national_id' => $this->digits((string) data_get($payload ?? $request->all(), 'user.national_id', data_get($payload ?? $request->all(), 'MLM_Structure.REPS.NationalCode', ''))),
             'mobile' => $this->digits((string) data_get($payload ?? $request->all(), 'user.mobile', '')),
-        ]);
+            'webhook_job_id' => $extra['webhook_job_id'] ?? null,
+            'webhook_job_uuid' => $extra['webhook_job_uuid'] ?? null,
+            'duration_ms' => $extra['duration_ms'] ?? null,
+            'exception' => $extra['exception'] ?? null,
+        ], static fn ($v) => $v !== null && $v !== ''));
     }
 
     /**

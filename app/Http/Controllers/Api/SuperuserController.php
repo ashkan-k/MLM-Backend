@@ -1052,6 +1052,12 @@ class SuperuserController extends Controller
             'finopal.webhook.transaction.ok' => 'وب‌هوک فینوپال / تراکنش موفق',
             'finopal.webhook.transaction.failed' => 'وب‌هوک فینوپال / تراکنش ناموفق',
             'api.error' => 'خطای سامانه',
+            'queue.pending_deleted' => 'حذف جاب از صف',
+            'queue.pending_released' => 'آزاد کردن رزرو جاب صف',
+            'queue.failed_retried' => 'Retry جاب ناموفق صف',
+            'queue.failed_deleted' => 'حذف جاب ناموفق صف',
+            'queue.failed_retry_all' => 'Retry همه جاب‌های ناموفق صف',
+            'queue.failed_flushed' => 'پاک‌سازی جاب‌های ناموفق صف',
             default => $action,
         };
     }

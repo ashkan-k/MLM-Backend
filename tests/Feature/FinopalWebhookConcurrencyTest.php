@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
+use App\Models\FinopalWebhookJob;
 use App\Models\ReferralCode;
 use App\Models\Role;
 use App\Models\User;
@@ -47,6 +48,11 @@ class FinopalWebhookConcurrencyTest extends TestCase
         $this->assertSame(5, User::query()->whereIn('id', $created)->count());
         $this->assertSame(5, User::query()->where('national_id', 'like', '90000000%')->count());
         $this->assertSame(5, AuditLog::query()->where('action', 'finopal.webhook.signup.ok')->count());
+        $this->assertSame(5, FinopalWebhookJob::query()->where('endpoint', 'signup')->where('success', true)->count());
+        $this->assertNotNull(AuditLog::query()->where('action', 'finopal.webhook.signup.ok')->value('new_values'));
+        $this->assertNotNull(
+            data_get(AuditLog::query()->where('action', 'finopal.webhook.signup.ok')->latest('id')->value('new_values'), 'webhook_job_id')
+        );
     }
 
     public function test_burst_same_identity_creates_only_one_user_and_audits_failures(): void
@@ -104,7 +110,7 @@ class FinopalWebhookConcurrencyTest extends TestCase
                 'users.national_id',
                 'users.mobile',
                 'users.farasof_user_id',
-            ]));
+            ]), 'referral_codes unique must not look like user identity unique');
         }
     }
 

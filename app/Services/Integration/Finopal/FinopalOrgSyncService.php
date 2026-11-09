@@ -249,9 +249,10 @@ class FinopalOrgSyncService
         array &$welcomeQueue,
         bool $isRep = false,
     ): ?OrganizationNode {
+        // No FOR UPDATE: identity Cache::lock + unique indexes are enough and avoid
+        // gap-lock contention that stalls concurrent Finopal webhook creates.
         $existing = User::query()
             ->where('national_id', $person['national_id'])
-            ->lockForUpdate()
             ->first();
 
         if ($existing) {
@@ -270,7 +271,7 @@ class FinopalOrgSyncService
             return $this->activeNodeFor($existing, $role->slug);
         }
 
-        if (User::query()->where('mobile', $person['mobile'])->lockForUpdate()->exists()) {
+        if (User::query()->where('mobile', $person['mobile'])->exists()) {
             $errors[] = [
                 'slot' => $slot,
                 'national_id' => $person['national_id'],
@@ -282,7 +283,7 @@ class FinopalOrgSyncService
             return null;
         }
 
-        if ($person['farasof_user_id'] && User::query()->where('farasof_user_id', $person['farasof_user_id'])->lockForUpdate()->exists()) {
+        if ($person['farasof_user_id'] && User::query()->where('farasof_user_id', $person['farasof_user_id'])->exists()) {
             $errors[] = [
                 'slot' => $slot,
                 'farasof_user_id' => $person['farasof_user_id'],
@@ -313,9 +314,9 @@ class FinopalOrgSyncService
                 'users_national_id_unique',
                 'users_mobile_unique',
                 'users_farasof_user_id_unique',
-                'national_id',
-                'mobile',
-                'farasof_user_id',
+                'users.national_id',
+                'users.mobile',
+                'users.farasof_user_id',
             ])) {
                 $existing = User::query()->where('national_id', $person['national_id'])->first()
                     ?? User::query()->where('mobile', $person['mobile'])->first();
@@ -556,7 +557,7 @@ class FinopalOrgSyncService
         }
 
         try {
-            return $lock->block(20, $callback);
+            return $lock->block(8, $callback);
         } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
             throw new RuntimeException('درخواست هم‌زمان برای این کاربر در حال پردازش است. کمی بعد دوباره تلاش کنید.');
         } catch (\BadMethodCallException) {

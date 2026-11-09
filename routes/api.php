@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\PointsController;
 use App\Http\Controllers\Api\PromotionController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\QueueMonitorController;
 use App\Http\Controllers\Api\SmsDebugController;
 use App\Http\Controllers\Api\SuperuserController;
 use App\Http\Controllers\Api\TrainingController;
@@ -198,5 +199,16 @@ Route::middleware(['auth.api'])->group(function () {
         Route::get('/sms', [SmsDebugController::class, 'index']);
         Route::post('/sms/test', [SmsDebugController::class, 'testSend']);
         Route::delete('/sms/logs', [SmsDebugController::class, 'clearLogs']);
+
+        Route::get('/queues', [QueueMonitorController::class, 'index']);
+        Route::post('/queues/failed/retry-all', [QueueMonitorController::class, 'retryAllFailed']);
+        Route::delete('/queues/failed', [QueueMonitorController::class, 'flushFailed']);
+        Route::get('/queues/webhooks/{webhook}', [QueueMonitorController::class, 'showWebhook']);
+        Route::get('/queues/pending/{job}', [QueueMonitorController::class, 'showPending']);
+        Route::delete('/queues/pending/{job}', [QueueMonitorController::class, 'destroyPending']);
+        Route::post('/queues/pending/{job}/release', [QueueMonitorController::class, 'releasePending']);
+        Route::get('/queues/failed/{failed}', [QueueMonitorController::class, 'showFailed']);
+        Route::post('/queues/failed/{failed}/retry', [QueueMonitorController::class, 'retryFailed']);
+        Route::delete('/queues/failed/{failed}', [QueueMonitorController::class, 'destroyFailed']);
     });
 });
