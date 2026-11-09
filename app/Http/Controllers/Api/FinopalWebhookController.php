@@ -157,12 +157,17 @@ class FinopalWebhookController extends Controller
         $createdCount = count($result['created']);
         $skippedCount = count($result['skipped']);
         $errorCount = count($result['errors']);
+        $alreadyRegistered = collect($result['errors'])
+            ->contains(fn ($row) => ($row['code'] ?? null) === 'already_registered');
+        $success = $errorCount === 0;
 
         return response()->json([
-            'success' => $errorCount === 0,
-            'message' => $errorCount === 0
+            'success' => $success,
+            'message' => $success
                 ? 'همگام‌سازی ساختار سازمانی انجام شد.'
-                : 'همگام‌سازی با برخی خطاها انجام شد.',
+                : ($alreadyRegistered && $createdCount === 0
+                    ? 'یک یا چند کاربر قبلاً ثبت شده‌اند و دوباره ثبت نشدند.'
+                    : 'همگام‌سازی با برخی خطاها انجام شد.'),
             'created_count' => $createdCount,
             'skipped_count' => $skippedCount,
             'error_count' => $errorCount,
@@ -171,7 +176,7 @@ class FinopalWebhookController extends Controller
             'skipped' => $result['skipped'],
             'errors' => $result['errors'],
             'structure' => $result['structure'],
-        ], $errorCount > 0 && $createdCount === 0 && $skippedCount === 0 ? 422 : 200);
+        ], (! $success && $createdCount === 0) ? 422 : 200);
     }
 
     /**
@@ -214,9 +219,7 @@ class FinopalWebhookController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => $result['user_created']
-                ? 'ثبت کاربر از فینوپال در سازمان فروش انجام شد.'
-                : 'اطلاعات این کاربر با داده‌های جدید به‌روز شد.',
+            'message' => 'ثبت کاربر از فینوپال در سازمان فروش انجام شد.',
             ...$result,
         ]);
     }

@@ -15,6 +15,9 @@ use App\Services\Organization\OrganizationTreeService;
 use App\Services\Sms\SmsService;
 use App\Services\Wallet\WalletService;
 use App\Support\ReferralCodeGenerator;
+use App\Support\UniqueConstraint;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -41,39 +44,54 @@ class FinopalSignupWebhookService
      */
     public function registerUser(array $data): array
     {
-        return DB::transaction(function () use ($data) {
-            $userInput = $data['user'];
-            $existing = $this->findUser($userInput);
-            $welcome = null;
-            if ($existing) {
-                $user = $this->refreshProfile($existing, $userInput);
-                $userCreated = false;
-            } else {
+        $userInput = $data['user'];
+        $nationalId = $this->digits((string) ($userInput['national_id'] ?? ''));
+        $mobile = $this->mobile((string) ($userInput['mobile'] ?? ''));
+        $lockKey = 'finopal-signup:'.($nationalId !== '' ? $nationalId : $mobile);
+
+        return $this->withIdentityLock($lockKey, function () use ($data, $userInput, $nationalId, $mobile) {
+            return DB::transaction(function () use ($data, $userInput, $nationalId, $mobile) {
+                $existing = $this->findUserForUpdate($userInput);
+                if ($existing) {
+                    throw ValidationException::withMessages([
+                        'user' => 'این کاربر قبلاً ثبت شده است.',
+                    ]);
+                }
+
                 $referrer = $this->referrer(self::normalizeReferralCode((string) ($data['referral_code'] ?? '')));
-                [$user, $welcome] = $this->createRepresentative(
-                    $userInput,
-                    $referrer,
-                    $this->digits((string) $userInput['national_id']),
-                    $this->mobile((string) $userInput['mobile']),
-                );
-                $userCreated = true;
-            }
 
-            if ($welcome) {
-                $sms = $this->sms;
-                $plain = $welcome;
-                DB::afterCommit(function () use ($sms, $user, $plain) {
-                    $sms->sendWelcome($user, $plain, 'representative');
-                });
-            }
+                try {
+                    [$user, $welcome] = $this->createRepresentative(
+                        $userInput,
+                        $referrer,
+                        $nationalId,
+                        $mobile,
+                    );
+                } catch (QueryException $e) {
+                    if (UniqueConstraint::violated($e)) {
+                        throw ValidationException::withMessages([
+                            'user' => 'این کاربر قبلاً ثبت شده است.',
+                        ]);
+                    }
+                    throw $e;
+                }
 
-            return [
-                'user_id' => $user->id,
-                'user_created' => $userCreated,
-                'user_updated' => ! $userCreated,
-                'user_skipped' => false,
-                'welcome_sms_queued' => $userCreated && $welcome !== null,
-            ];
+                if ($welcome) {
+                    $sms = $this->sms;
+                    $plain = $welcome;
+                    DB::afterCommit(function () use ($sms, $user, $plain) {
+                        $sms->sendWelcome($user, $plain, 'representative');
+                    });
+                }
+
+                return [
+                    'user_id' => $user->id,
+                    'user_created' => true,
+                    'user_updated' => false,
+                    'user_skipped' => false,
+                    'welcome_sms_queued' => $welcome !== null,
+                ];
+            });
         });
     }
 
@@ -186,15 +204,67 @@ class FinopalSignupWebhookService
      */
     private function findUser(array $userInput): ?User
     {
+        return $this->findUserQuery($userInput)->first();
+    }
+
+    /**
+     * @param  array<string, mixed>  $userInput
+     */
+    private function findUserForUpdate(array $userInput): ?User
+    {
+        return $this->findUserQuery($userInput)->lockForUpdate()->first();
+    }
+
+    /**
+     * @param  array<string, mixed>  $userInput
+     */
+    private function findUserQuery(array $userInput): \Illuminate\Database\Eloquent\Builder
+    {
         $nationalId = $this->digits((string) ($userInput['national_id'] ?? ''));
         $mobile = $this->mobile((string) ($userInput['mobile'] ?? ''));
         $finopalUserId = $this->emptyToNull($userInput['finopal_user_id'] ?? null);
 
-        return ($nationalId !== '' ? User::query()->where('national_id', $nationalId)->first() : null)
-            ?? ($mobile !== '' ? User::query()->where('mobile', $mobile)->first() : null)
-            ?? ($finopalUserId
-                ? User::query()->where('farasof_user_id', $finopalUserId)->first()
-                : null);
+        if ($nationalId === '' && $mobile === '' && $finopalUserId === null) {
+            return User::query()->whereRaw('0 = 1');
+        }
+
+        return User::query()->where(function ($q) use ($nationalId, $mobile, $finopalUserId) {
+            if ($nationalId !== '') {
+                $q->orWhere('national_id', $nationalId);
+            }
+            if ($mobile !== '') {
+                $q->orWhere('mobile', $mobile);
+            }
+            if ($finopalUserId !== null) {
+                $q->orWhere('farasof_user_id', $finopalUserId);
+            }
+        });
+    }
+
+    /**
+     * Serialize concurrent webhook creates for the same identity.
+     *
+     * @template T
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    private function withIdentityLock(string $key, callable $callback): mixed
+    {
+        try {
+            $lock = Cache::lock($key, 30);
+        } catch (\Throwable) {
+            return $callback();
+        }
+
+        try {
+            return $lock->block(20, $callback);
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+            throw ValidationException::withMessages([
+                'user' => 'درخواست هم‌زمان برای این کاربر در حال پردازش است. کمی بعد دوباره تلاش کنید.',
+            ]);
+        } catch (\BadMethodCallException) {
+            return $callback();
+        }
     }
 
     public static function normalizeReferralCode(string $value): string
@@ -251,66 +321,11 @@ class FinopalSignupWebhookService
     }
 
     /**
-     * Keep the existing person in place and refresh the profile Finopal sent.
-     * Empty fields do not wipe stored values. A mobile, national id, email, or
-     * Finopal id that already belongs to someone else is left unchanged.
-     *
-     * @param  array<string, mixed>  $input
-     */
-    private function refreshProfile(User $user, array $input): User
-    {
-        $name = trim((string) ($input['name'] ?? ''));
-        if ($name !== '') {
-            $user->name = $name;
-        }
-
-        $birth = $this->dateOrNull($input['birth_date'] ?? null);
-        if ($birth !== null) {
-            $user->birth_date = $birth;
-        }
-
-        $sheba = $this->emptyToNull($input['sheba'] ?? null);
-        if ($sheba !== null) {
-            $user->sheba = $sheba;
-        }
-
-        $email = $this->emptyToNull($input['email'] ?? null);
-        if ($email !== null && ! User::query()->where('email', $email)->whereKeyNot($user->id)->exists()) {
-            $user->email = $email;
-        }
-
-        $mobile = $this->mobile((string) ($input['mobile'] ?? ''));
-        if ($mobile !== '' && $mobile !== $user->mobile && ! User::query()->where('mobile', $mobile)->whereKeyNot($user->id)->exists()) {
-            $user->mobile = $mobile;
-        }
-
-        $nationalId = $this->digits((string) ($input['national_id'] ?? ''));
-        if ($nationalId !== '' && $nationalId !== (string) $user->national_id && ! User::query()->where('national_id', $nationalId)->whereKeyNot($user->id)->exists()) {
-            $user->national_id = $nationalId;
-        }
-
-        $finopalId = $this->emptyToNull($input['finopal_user_id'] ?? null);
-        if ($finopalId !== null && ! User::query()->where('farasof_user_id', $finopalId)->whereKeyNot($user->id)->exists()) {
-            $user->farasof_user_id = $finopalId;
-        }
-
-        $user->save();
-
-        return $user;
-    }
-
-    /**
      * @param  array<string, mixed>  $input
      * @return array{0: User, 1: string}
      */
     private function createRepresentative(array $input, User $referrer, string $nationalId, string $mobile): array
     {
-        if (User::query()->where('mobile', $mobile)->exists()) {
-            throw ValidationException::withMessages([
-                'user.mobile' => 'این موبایل برای کاربر دیگری ثبت شده است.',
-            ]);
-        }
-
         $plain = (string) config('finopal.sync_default_password', 'Password123!');
         $user = User::query()->create([
             'name' => $input['name'],

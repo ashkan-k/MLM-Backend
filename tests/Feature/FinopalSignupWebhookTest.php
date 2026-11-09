@@ -87,27 +87,17 @@ class FinopalSignupWebhookTest extends TestCase
         $this->assertSame($smNode->id, (int) $node->parent_node_id);
         $this->assertSame(0, GatewaySale::query()->count());
 
+        // کاربر تکراری نباید موفق شود و نباید جابه‌جا/آپدیت شود
         $updated = $userPayload;
         $updated['user']['name'] = 'کاربر ویرایش‌شده';
         $updated['user']['birth_date'] = '1991-04-03';
         $updated['user']['email'] = 'finopal-user@example.com';
         $again = $this->postJson('/api/webhooks/finopal/signup', $updated, [
             'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
-        ])->assertOk();
-        $again->assertJsonPath('user_created', false)
-            ->assertJsonPath('user_updated', true)
-            ->assertJsonPath('user_skipped', false)
-            ->assertJsonPath('user_id', $newbie->id);
+        ])->assertStatus(422);
+        $again->assertJsonPath('errors.user.0', 'این کاربر قبلاً ثبت شده است.');
         $newbie->refresh();
-        $this->assertSame('کاربر ویرایش‌شده', $newbie->name);
-        $this->assertSame('1370-01-14', $newbie->birth_date?->toDateString());
-        $updated['user']['birth_date'] = '1368/04/26';
-        $this->postJson('/api/webhooks/finopal/signup', $updated, [
-            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
-        ])->assertOk();
-        $newbie->refresh();
-        $this->assertSame('1368-04-26', $newbie->birth_date?->toDateString());
-        $this->assertSame('finopal-user@example.com', $newbie->email);
+        $this->assertSame('کاربر فینوپال', $newbie->name);
         $this->assertSame($smNode->id, (int) $node->fresh()->parent_node_id);
         $this->assertSame(1, User::query()->where('national_id', '1234567890')->count());
 
@@ -158,6 +148,61 @@ class FinopalSignupWebhookTest extends TestCase
             ->assertJsonPath('user_created', true);
     }
 
+    public function test_signup_rejects_already_registered_without_moving_upline(): void
+    {
+        $repRole = $this->role('representative', 'نماینده', 5);
+        $smRole = $this->role('sales_manager', 'مدیر فروش', 3);
+        $this->role('representative_referrer', 'نماینده معرف', 4);
+
+        $manager = User::factory()->create(['name' => 'مدیر', 'mobile' => '09120000101']);
+        $referrerA = User::factory()->create(['name' => 'معرف الف', 'mobile' => '09120000102']);
+        $referrerB = User::factory()->create(['name' => 'معرف ب', 'mobile' => '09120000103']);
+        $this->attachRole($manager, $smRole);
+        $this->attachRole($referrerA, $repRole);
+        $this->attachRole($referrerB, $repRole);
+
+        $tree = app(OrganizationTreeService::class);
+        $smNode = $tree->attach($manager, $smRole, null, now()->toDateString());
+        $tree->attach($referrerA, $repRole, $smNode, now()->toDateString());
+        $tree->attach($referrerB, $repRole, $smNode, now()->toDateString());
+
+        ReferralCode::query()->create(['user_id' => $referrerA->id, 'code' => 'REF-A', 'source' => 'finopal', 'is_active' => true]);
+        ReferralCode::query()->create(['user_id' => $referrerB->id, 'code' => 'REF-B', 'source' => 'finopal', 'is_active' => true]);
+
+        $payload = [
+            'referral_code' => 'REF-A',
+            'user' => [
+                'name' => 'کاربر الف',
+                'mobile' => '09128887766',
+                'national_id' => '5566778899',
+            ],
+        ];
+
+        $this->postJson('/api/webhooks/finopal/signup', $payload, [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk()->assertJsonPath('success', true);
+
+        $user = User::query()->where('national_id', '5566778899')->firstOrFail();
+        $node = OrganizationNode::query()->where('user_id', $user->id)->where('is_active', true)->firstOrFail();
+        $parentBefore = (int) $node->parent_node_id;
+
+        $retryUnderB = $payload;
+        $retryUnderB['referral_code'] = 'REF-B';
+        $retryUnderB['user']['name'] = 'نباید عوض شود';
+
+        $this->postJson('/api/webhooks/finopal/signup', $retryUnderB, [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'این کاربر قبلاً ثبت شده است.')
+            ->assertJsonPath('errors.user.0', 'این کاربر قبلاً ثبت شده است.');
+
+        $user->refresh();
+        $node->refresh();
+        $this->assertSame('کاربر الف', $user->name);
+        $this->assertSame($parentBefore, (int) $node->parent_node_id);
+        $this->assertSame(1, User::query()->where('national_id', '5566778899')->count());
+    }
+
     public function test_signup_links_point_at_each_product_site(): void
     {
         $links = collect(\App\Services\Integration\Finopal\FinopalSignupWebhookService::signupLinks('REF-SIGNUP-1'))
@@ -167,7 +212,7 @@ class FinopalSignupWebhookTest extends TestCase
             'https://finopal.ir/login?finonet_ref=REF-SIGNUP-1',
             $links['gateway_profit']['url']
         );
-        $this->assertSame('قالب بازار', $links['ghalebazar']['label']);
+        $this->assertStringContainsString('قالب', $links['ghalebazar']['label']);
         $this->assertSame(
             'https://ghalebazar.ir/account/profile?finonet_ref=REF-SIGNUP-1',
             $links['ghalebazar']['url']

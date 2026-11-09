@@ -12,6 +12,9 @@ use App\Services\Organization\OrganizationTreeService;
 use App\Services\Sms\SmsService;
 use App\Services\Wallet\WalletService;
 use App\Support\ReferralCodeGenerator;
+use App\Support\UniqueConstraint;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -181,37 +184,100 @@ class FinopalOrgSyncService
             return null;
         }
 
-        $existing = User::query()->where('national_id', $person['national_id'])->first();
+        $lockKey = 'finopal-org-sync:'.$person['national_id'];
+
+        try {
+            return $this->withIdentityLock($lockKey, function () use (
+                $person,
+                $slot,
+                $role,
+                $parent,
+                &$created,
+                &$skipped,
+                &$errors,
+                &$welcomeQueue,
+                $isRep,
+            ) {
+                return $this->upsertSlotLocked(
+                    $person,
+                    $slot,
+                    $role,
+                    $parent,
+                    $created,
+                    $skipped,
+                    $errors,
+                    $welcomeQueue,
+                    $isRep,
+                );
+            });
+        } catch (RuntimeException $e) {
+            $errors[] = [
+                'slot' => $slot,
+                'national_id' => $person['national_id'],
+                'message' => $e->getMessage(),
+            ];
+
+            return null;
+        }
+    }
+
+    /**
+     * @param  array{name: string, mobile: string, national_id: string, farasof_user_id: ?string, birth_date: ?string, sheba: ?string, mlm_commission: ?string}  $person
+     * @param  list<array<string, mixed>>  $created
+     * @param  list<array<string, mixed>>  $skipped
+     * @param  list<array<string, mixed>>  $errors
+     * @param  list<array{user: User, password: string, role: string}>  $welcomeQueue
+     */
+    private function upsertSlotLocked(
+        array $person,
+        string $slot,
+        Role $role,
+        ?OrganizationNode $parent,
+        array &$created,
+        array &$skipped,
+        array &$errors,
+        array &$welcomeQueue,
+        bool $isRep = false,
+    ): ?OrganizationNode {
+        $existing = User::query()
+            ->where('national_id', $person['national_id'])
+            ->lockForUpdate()
+            ->first();
+
         if ($existing) {
-            $skipped[] = [
+            // Already registered: fail for Finopal (do not move under a new upline),
+            // but still expose the current node so upper slots can parent new children.
+            $errors[] = [
                 'slot' => $slot,
                 'user_id' => $existing->id,
                 'national_id' => $person['national_id'],
                 'mobile' => $existing->mobile,
                 'role' => $role->slug,
-                'reason' => 'national_id_exists',
+                'code' => 'already_registered',
+                'message' => 'این کاربر قبلاً ثبت شده است.',
             ];
 
-            // Existing users are not modified; only expose their current org node as parent for children.
             return $this->activeNodeFor($existing, $role->slug);
         }
 
-        if (User::query()->where('mobile', $person['mobile'])->exists()) {
+        if (User::query()->where('mobile', $person['mobile'])->lockForUpdate()->exists()) {
             $errors[] = [
                 'slot' => $slot,
                 'national_id' => $person['national_id'],
                 'mobile' => $person['mobile'],
-                'message' => 'شماره موبایل قبلاً برای کاربر دیگری ثبت شده است.',
+                'code' => 'already_registered',
+                'message' => 'این کاربر قبلاً ثبت شده است.',
             ];
 
             return null;
         }
 
-        if ($person['farasof_user_id'] && User::query()->where('farasof_user_id', $person['farasof_user_id'])->exists()) {
+        if ($person['farasof_user_id'] && User::query()->where('farasof_user_id', $person['farasof_user_id'])->lockForUpdate()->exists()) {
             $errors[] = [
                 'slot' => $slot,
                 'farasof_user_id' => $person['farasof_user_id'],
-                'message' => 'Farasof_User_ID قبلاً برای کاربر دیگری ثبت شده است.',
+                'code' => 'already_registered',
+                'message' => 'این کاربر قبلاً ثبت شده است.',
             ];
 
             return null;
@@ -232,6 +298,22 @@ class FinopalOrgSyncService
             ]);
 
             $node = $this->ensureRoleAndNode($user, $role, $parent, true);
+        } catch (QueryException $e) {
+            if (UniqueConstraint::violated($e)) {
+                $existing = User::query()->where('national_id', $person['national_id'])->first()
+                    ?? User::query()->where('mobile', $person['mobile'])->first();
+                $errors[] = [
+                    'slot' => $slot,
+                    'user_id' => $existing?->id,
+                    'national_id' => $person['national_id'],
+                    'mobile' => $person['mobile'],
+                    'code' => 'already_registered',
+                    'message' => 'این کاربر قبلاً ثبت شده است.',
+                ];
+
+                return $existing ? $this->activeNodeFor($existing, $role->slug) : null;
+            }
+            throw $e;
         } catch (RuntimeException $e) {
             $errors[] = [
                 'slot' => $slot,
@@ -427,5 +509,27 @@ class FinopalOrgSyncService
         ];
 
         return preg_replace('/\D+/', '', strtr($value, $map)) ?? '';
+    }
+
+    /**
+     * @template T
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    private function withIdentityLock(string $key, callable $callback): mixed
+    {
+        try {
+            $lock = Cache::lock($key, 30);
+        } catch (\Throwable) {
+            return $callback();
+        }
+
+        try {
+            return $lock->block(20, $callback);
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+            throw new RuntimeException('درخواست هم‌زمان برای این کاربر در حال پردازش است. کمی بعد دوباره تلاش کنید.');
+        } catch (\BadMethodCallException) {
+            return $callback();
+        }
     }
 }
