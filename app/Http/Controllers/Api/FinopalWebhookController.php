@@ -8,6 +8,7 @@ use App\Services\Integration\Finopal\FinopalSignupWebhookService;
 use App\Services\Integration\Finopal\FinopalTransactionService;
 use App\Services\Integration\Finopal\FinopalWebhookAuditor;
 use App\Services\Integration\Finopal\FinopalWebhookJobTracker;
+use App\Support\PersianText;
 use App\Support\ProductCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -352,6 +353,9 @@ class FinopalWebhookController extends Controller
         Request $request,
         callable $callback,
     ): Response {
+        // Eastern digits (۰-۹ / ٠-٩) → ASCII before validate/store (mobile, national id, amounts, …).
+        $request->replace(PersianText::englishDigitsIn($request->all()));
+
         $job = $tracker->start($endpoint, $request);
         $started = microtime(true);
 

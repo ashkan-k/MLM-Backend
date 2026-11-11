@@ -4,6 +4,52 @@ namespace App\Support;
 
 class PersianText
 {
+    /** Persian + Arabic-Indic digits → ASCII 0-9 (other characters unchanged). */
+    public static function englishDigits(?string $value): string
+    {
+        $value = (string) $value;
+        if ($value === '') {
+            return '';
+        }
+
+        return strtr($value, [
+            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+            '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+        ]);
+    }
+
+    /** Convert Eastern digits then keep ASCII digits only. */
+    public static function onlyDigits(?string $value): string
+    {
+        return preg_replace('/\D+/', '', self::englishDigits($value)) ?? '';
+    }
+
+    /**
+     * Recursively convert Eastern digits inside string leaves of webhook payloads.
+     *
+     * @param  mixed  $data
+     * @return mixed
+     */
+    public static function englishDigitsIn(mixed $data): mixed
+    {
+        if (is_array($data)) {
+            $out = [];
+            foreach ($data as $key => $value) {
+                $out[$key] = self::englishDigitsIn($value);
+            }
+
+            return $out;
+        }
+
+        if (is_string($data)) {
+            return self::englishDigits($data);
+        }
+
+        return $data;
+    }
+
     public static function normalize(?string $value): string
     {
         $value = trim((string) $value);

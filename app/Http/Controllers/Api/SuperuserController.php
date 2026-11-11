@@ -28,6 +28,7 @@ use App\Services\Report\SuperuserReportService;
 use App\Services\User\UserBlockService;
 use App\Services\Wallet\WalletService;
 use App\Support\AuthUserPresenter;
+use App\Support\PersianText;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -180,6 +181,9 @@ class SuperuserController extends Controller
 
     public function storeUser(Request $request, WalletService $wallets, OrganizationTreeService $tree, AuditService $audit)
     {
+        $request->merge([
+            'mobile' => PersianText::englishDigits((string) $request->input('mobile', '')),
+        ]);
         $data = $request->validate([
             'name' => ['required', 'string'],
             'mobile' => ['required', 'unique:users,mobile'],
@@ -210,6 +214,9 @@ class SuperuserController extends Controller
 
     public function updateUser(Request $request, User $user, WalletService $wallets, OrganizationTreeService $tree, AuditService $audit, UserBlockService $blocks)
     {
+        $request->merge([
+            'mobile' => PersianText::englishDigits((string) $request->input('mobile', '')),
+        ]);
         $data = $request->validate([
             'name' => ['required', 'string'],
             'mobile' => ['required', Rule::unique('users', 'mobile')->ignore($user->id)],

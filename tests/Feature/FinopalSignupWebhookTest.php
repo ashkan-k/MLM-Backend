@@ -203,6 +203,48 @@ class FinopalSignupWebhookTest extends TestCase
         $this->assertSame(1, User::query()->where('national_id', '5566778899')->count());
     }
 
+    public function test_signup_converts_persian_digits_on_mobile_and_national_id(): void
+    {
+        config(['finopal.webhook_secret' => 'test-webhook-secret']);
+
+        $repRole = $this->role('representative', 'نماینده', 5);
+        $smRole = $this->role('sales_manager', 'مدیر فروش', 3);
+        $this->role('representative_referrer', 'نماینده معرف', 4);
+
+        $manager = User::factory()->create(['name' => 'مدیر', 'mobile' => '09120000201']);
+        $referrer = User::factory()->create(['name' => 'معرف', 'mobile' => '09120000202']);
+        $this->attachRole($manager, $smRole);
+        $this->attachRole($referrer, $repRole);
+
+        $tree = app(OrganizationTreeService::class);
+        $smNode = $tree->attach($manager, $smRole, null, now()->toDateString());
+        $tree->attach($referrer, $repRole, $smNode, now()->toDateString());
+
+        ReferralCode::query()->create([
+            'user_id' => $referrer->id,
+            'code' => 'REF-FA-DIGITS',
+            'source' => 'finopal',
+            'is_active' => true,
+        ]);
+
+        $this->postJson('/api/webhooks/finopal/signup', [
+            'referral_code' => 'REF-FA-DIGITS',
+            'user' => [
+                'name' => 'کاربر ارقام فارسی',
+                'mobile' => '۰۹۱۲۷۸۴۴۹۴۴',
+                'national_id' => '۰۰۱۲۳۴۵۶۷۸',
+            ],
+        ], [
+            'X-Finopal-Webhook-Secret' => 'test-webhook-secret',
+        ])->assertOk()->assertJsonPath('user_created', true);
+
+        $user = User::query()->where('mobile', '09127844944')->first();
+        $this->assertNotNull($user);
+        $this->assertSame('09127844944', $user->mobile);
+        $this->assertSame('0012345678', $user->national_id);
+        $this->assertSame(0, User::query()->where('mobile', '۰۹۱۲۷۸۴۴۹۴۴')->count());
+    }
+
     public function test_signup_links_point_at_each_product_site(): void
     {
         $links = collect(\App\Services\Integration\Finopal\FinopalSignupWebhookService::signupLinks('REF-SIGNUP-1'))

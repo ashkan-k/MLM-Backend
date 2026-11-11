@@ -15,6 +15,7 @@ use App\Services\Organization\OrganizationTreeService;
 use App\Services\Referral\SharedLinkService;
 use App\Services\Wallet\WalletService;
 use App\Support\AuthUserPresenter;
+use App\Support\PersianText;
 use App\Support\ReferralCodeGenerator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,9 @@ class AuthController extends Controller
 {
     public function login(Request $request)
     {
+        $request->merge([
+            'mobile' => PersianText::englishDigits((string) $request->input('mobile', '')),
+        ]);
         $data = $request->validate([
             'mobile' => ['required', 'string'],
             'password' => ['required', 'string'],
@@ -59,6 +63,12 @@ class AuthController extends Controller
 
     public function register(Request $request, OrganizationTreeService $tree, WalletService $wallets, SharedLinkService $sharedLinks)
     {
+        $request->merge([
+            'mobile' => PersianText::englishDigits((string) $request->input('mobile', '')),
+            'referral_code' => $request->filled('referral_code')
+                ? PersianText::englishDigits((string) $request->input('referral_code'))
+                : $request->input('referral_code'),
+        ]);
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'mobile' => ['required', 'string', 'unique:users,mobile'],
